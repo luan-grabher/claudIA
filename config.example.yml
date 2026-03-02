@@ -1,0 +1,29 @@
+telegram:
+  token: "SEU_TOKEN_DO_BOT_AQUI"
+  allowed_user_ids: []  # vazio = aceita qualquer usuário. Ex: [123456789, 987654321]
+  language: "pt-BR"
+
+ollama:
+  base_url: "http://localhost:11434"
+
+models:
+  classifier:
+    name: qwen2.5:3b       # modelo leve só para classificar intenção
+  default:
+    name: qwen2.5:7b       # modelo principal para respostas gerais
+  code:
+    name: qwen2.5-coder:7b # modelo focado em código (opcional)
+  vision:
+    name: llava:7b         # modelo para imagens (opcional)
+
+skills:
+  shell:
+    enabled: true
+    timeout_seconds: 60
+  web_search:
+    enabled: false          # requer SearXNG rodando localmente
+    searxng_url: "http://localhost:8080"
+
+orchestrator:
+  max_steps_per_task: 8
+  step_timeout_seconds: 120
