@@ -30,8 +30,6 @@ services:
     volumes:
       - ./config.yml:/app/config.yml:ro
       - ./claudia_data:/app/data
-    # Privileged mode gives the shell skill full Linux capabilities on the host
-    privileged: true
     networks:
       - claudia_net
     environment:
