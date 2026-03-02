@@ -1,6 +1,6 @@
 # 🧠 ClaudIA — Agente de IA Local com Telegram
 
-ClaudIA é um agente de IA que roda 100% localmente na sua VPS usando modelos do Ollama. Ele classifica a intenção de cada mensagem e roteia para o modelo ou skill mais adequado, sem depender de APIs externas com rate limit.
+ClaudIA é um agente de IA que roda 100% localmente na sua VPS usando modelos do Ollama. Ela classifica a intenção de cada mensagem e roteia para o modelo ou skill mais adequado, sem depender de APIs externas com rate limit.
 
 ## Como funciona
 
@@ -13,46 +13,64 @@ Cada mensagem que você manda passa por um modelo classificador leve (3B) que de
 
 ## Requisitos
 
-- Ubuntu 20.04+ (VPS ou máquina local)
-- 8GB de RAM mínimo
-- Python 3.10+
+- Docker Engine 24+ e Docker Compose (plugin v2)
+- Acesso à internet para baixar as imagens Docker e os modelos Ollama
 - Conta no Telegram e um bot criado via [@BotFather](https://t.me/BotFather)
 
 ## Instalação (um único comando)
 
 ```bash
-git clone https://github.com/SEU_USUARIO/claudia.git
-cd claudia
+git clone https://github.com/luan-grabher/claudIA.git
+cd claudIA
 bash setup.sh
 ```
 
 O script vai:
-1. Instalar o Ollama automaticamente
-2. Baixar os modelos necessários (qwen2.5:3b e qwen2.5:7b)
-3. Criar o ambiente Python
-4. Pedir seu token do Telegram
+1. Validar seu token do bot Telegram via API
+2. Validar seu ID de usuário Telegram
+3. Criar o `config.yml` automaticamente
+4. Configurar swap no host para que os LLMs possam usar disco quando a RAM for insuficiente
+5. Subir os containers Docker (Ollama + ClaudIA)
+6. Na primeira inicialização, o bot envia uma mensagem de boas-vindas para você no Telegram
 
-## Iniciar
+## Comandos disponíveis no Telegram
+
+| Comando | Descrição |
+|---------|-----------|
+| `/start` | Mensagem de boas-vindas |
+| `/status` | Mostra modelo ativo e status |
+| `/setup` | Mostra a configuração atual do bot |
+
+## Gerenciamento do Docker
 
 ```bash
-source .venv/bin/activate
-python main.py
-```
+# Ver logs em tempo real
+docker compose logs -f claudia
 
-Para rodar automaticamente ao reiniciar o servidor:
+# Ver logs do Ollama
+docker compose logs -f ollama
 
-```bash
-sudo bash install_service.sh
+# Parar tudo
+docker compose down
+
+# Reiniciar apenas o ClaudIA
+docker compose restart claudia
+
+# Reconstruir após mudanças no código
+docker compose build && docker compose up -d
 ```
 
 ## Configuração (config.yml)
 
-Edite o `config.yml` para ajustar:
+O `config.yml` é gerado automaticamente pelo `setup.sh`. Você pode editá-lo para ajustar:
 
 ```yaml
 telegram:
   token: "SEU_TOKEN"
   allowed_user_ids: [123456789]  # seu ID do Telegram
+
+ollama:
+  base_url: "http://ollama:11434"  # nome do serviço no docker-compose
 
 models:
   classifier:
@@ -65,23 +83,29 @@ skills:
     enabled: true      # permite executar comandos no terminal
 ```
 
-Para descobrir seu ID do Telegram, mande qualquer mensagem para [@userinfobot](https://t.me/userinfobot).
+Após editar o `config.yml`, reinicie o ClaudIA:
 
-## Comandos disponíveis no Telegram
+```bash
+docker compose restart claudia
+```
 
-| Comando | Descrição |
-|---------|-----------|
-| `/start` | Mensagem de boas-vindas |
-| `/status` | Mostra modelo ativo e status |
+## Suporte a disco/SSD para LLMs (baixa memória RAM)
+
+O `setup.sh` configura automaticamente um arquivo de swap de 8 GB no host.  
+O Ollama é configurado com `OLLAMA_MAX_LOADED_MODELS=1` para manter apenas um modelo carregado por vez.  
+Isso garante que, mesmo com RAM limitada, os modelos funcionarão (mais lentamente, via swap).
 
 ## Estrutura do projeto
 
 ```
-claudia/
+claudIA/
 ├── main.py                    # ponto de entrada
-├── config.yml                 # sua configuração
-├── setup.sh                   # instalação automática
-├── install_service.sh         # instala como serviço systemd
+├── config.example.yml         # template de configuração
+├── config.yml                 # sua configuração (gerado pelo setup.sh)
+├── requirements.txt           # dependências Python
+├── Dockerfile                 # imagem Docker do ClaudIA
+├── docker-compose.yml         # orquestração Docker (ClaudIA + Ollama)
+├── setup.sh                   # setup interativo (apenas token + user ID)
 ├── core/
 │   ├── classifier.py          # classifica a intenção da mensagem
 │   ├── router.py              # roteia para o handler correto

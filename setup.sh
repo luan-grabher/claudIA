@@ -5,73 +5,158 @@ set -e
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
-print_step() { echo -e "${GREEN}[ClaudIA]${NC} $1"; }
-print_warn() { echo -e "${YELLOW}[ClaudIA]${NC} $1"; }
+print_step()  { echo -e "${GREEN}[ClaudIA]${NC} $1"; }
+print_warn()  { echo -e "${YELLOW}[ClaudIA]${NC} $1"; }
 print_error() { echo -e "${RED}[ClaudIA]${NC} $1"; }
+print_info()  { echo -e "${CYAN}[ClaudIA]${NC} $1"; }
 
-print_step "=== Configuração do ClaudIA Agent ==="
+echo ""
+echo -e "${GREEN}╔══════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║       ClaudIA — Setup Inicial            ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════╝${NC}"
 echo ""
 
-if ! command -v ollama &>/dev/null; then
-    print_step "Instalando Ollama..."
-    curl -fsSL https://ollama.com/install.sh | sh
-    print_step "Ollama instalado."
-else
-    print_step "Ollama já está instalado."
+# ─── Verificar dependências ─────────────────────────────────────────────────
+
+if ! command -v docker &>/dev/null; then
+    print_error "Docker não está instalado. Instale em: https://docs.docker.com/get-docker/"
+    exit 1
 fi
 
-if ! systemctl is-active --quiet ollama 2>/dev/null; then
-    print_step "Iniciando Ollama..."
-    ollama serve &>/dev/null &
-    sleep 3
+if ! docker compose version &>/dev/null 2>&1; then
+    print_error "Docker Compose (plugin v2) não está disponível. Atualize o Docker."
+    exit 1
 fi
 
-if ! command -v python3 &>/dev/null; then
-    print_step "Instalando Python 3..."
-    apt-get update -qq && apt-get install -y python3 python3-pip python3-venv
+if ! command -v curl &>/dev/null; then
+    print_error "curl não está instalado. Instale com: apt install curl"
+    exit 1
 fi
 
-print_step "Criando ambiente virtual Python..."
-python3 -m venv .venv
-source .venv/bin/activate
+# ─── Coletar credenciais ─────────────────────────────────────────────────────
 
-print_step "Instalando dependências Python..."
-pip install -q -r requirements.txt
+echo -e "${CYAN}Você precisará de:${NC}"
+echo "  1. Token do bot Telegram (obtenha em @BotFather)"
+echo "  2. Seu ID de usuário Telegram (obtenha em @userinfobot)"
+echo ""
 
-if [ ! -f "config.yml" ]; then
-    cp config.example.yml config.yml
-    print_warn ""
-    print_warn "config.yml criado. Você precisa configurar:"
-    print_warn ""
-    
-    echo -e "${YELLOW}Token do bot Telegram (obtenha em @BotFather):${NC}"
+while true; do
+    echo -e "${YELLOW}Token do bot Telegram:${NC} "
     read -r TELEGRAM_TOKEN
-    
-    if [ -n "$TELEGRAM_TOKEN" ]; then
-        sed -i "s/SEU_TOKEN_DO_BOT_AQUI/$TELEGRAM_TOKEN/" config.yml
-        print_step "Token configurado."
-    else
-        print_warn "Token não informado. Edite o config.yml manualmente."
+
+    if [ -z "$TELEGRAM_TOKEN" ]; then
+        print_error "Token não pode ser vazio."
+        continue
     fi
+
+    print_step "Validando token do bot..."
+    RESPONSE=$(curl -s "https://api.telegram.org/bot${TELEGRAM_TOKEN}/getMe" 2>/dev/null || true)
+
+    if echo "$RESPONSE" | grep -q '"ok":true'; then
+        BOT_NAME=$(echo "$RESPONSE" | grep -o '"username":"[^"]*"' | cut -d'"' -f4)
+        print_step "✅ Token válido! Bot: @${BOT_NAME}"
+        break
+    else
+        print_error "❌ Token inválido ou sem acesso à internet. Tente novamente."
+    fi
+done
+
+echo ""
+while true; do
+    echo -e "${YELLOW}Seu ID de usuário Telegram (somente números):${NC} "
+    read -r TELEGRAM_USER_ID
+
+    if [[ ! "$TELEGRAM_USER_ID" =~ ^[0-9]+$ ]]; then
+        print_error "ID inválido. Deve conter apenas números (ex: 123456789)."
+        continue
+    fi
+
+    print_step "✅ User ID aceito: ${TELEGRAM_USER_ID}"
+    break
+done
+
+# ─── Configurar swap (para suporte de LLM em disco quando RAM for insuficiente) ─
+
+SWAP_FILE="/swapfile"
+SWAP_SIZE_MB=8192  # 8 GB de swap
+
+if [ "$(id -u)" -ne 0 ]; then
+    print_warn "Swap não configurado (execução não-root)."
+    print_warn "Para melhor desempenho com LLMs grandes, execute como root ou configure swap manualmente:"
+    print_warn "  sudo fallocate -l 8G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile"
+elif [ -f "$SWAP_FILE" ]; then
+    print_info "Swap já configurado, pulando."
 else
-    print_step "config.yml já existe, pulando configuração."
+    print_step "Configurando swap de ${SWAP_SIZE_MB}MB para suporte de LLM em disco..."
+    fallocate -l "${SWAP_SIZE_MB}M" "$SWAP_FILE" 2>/dev/null \
+        || dd if=/dev/zero of="$SWAP_FILE" bs=1M count="$SWAP_SIZE_MB" status=none
+    chmod 600 "$SWAP_FILE"
+    mkswap "$SWAP_FILE"
+    swapon "$SWAP_FILE"
+    echo "$SWAP_FILE none swap sw 0 0" >> /etc/fstab
+    print_step "✅ Swap configurado (${SWAP_SIZE_MB}MB)."
 fi
 
-echo ""
-print_step "Baixando modelos (isso pode demorar alguns minutos)..."
-print_step "Baixando modelo classificador (qwen2.5:3b)..."
-ollama pull qwen2.5:3b
-print_step "Baixando modelo principal (qwen2.5:7b)..."
-ollama pull qwen2.5:7b
+# ─── Gerar config.yml ────────────────────────────────────────────────────────
+
+print_step "Gerando config.yml..."
+
+cat > config.yml <<EOF
+telegram:
+  token: "${TELEGRAM_TOKEN}"
+  allowed_user_ids: [${TELEGRAM_USER_ID}]
+  language: "pt-BR"
+
+ollama:
+  base_url: "http://ollama:11434"
+
+models:
+  classifier:
+    name: qwen2.5:3b
+  default:
+    name: qwen2.5:7b
+  code:
+    name: qwen2.5-coder:7b
+  vision:
+    name: llava:7b
+
+skills:
+  shell:
+    enabled: true
+    timeout_seconds: 60
+
+orchestrator:
+  max_steps_per_task: 8
+  step_timeout_seconds: 120
+EOF
+
+print_step "✅ config.yml gerado."
+
+# ─── Criar marcador de primeira execução ─────────────────────────────────────
+
+print_step "Marcando como primeira execução..."
+mkdir -p claudia_data
+touch claudia_data/.first_run
+
+# ─── Iniciar Docker ───────────────────────────────────────────────────────────
+
+print_step "Construindo e iniciando containers Docker..."
+docker compose build
+docker compose up -d
 
 echo ""
-print_step "=== Instalação concluída! ==="
+echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║  ✅ ClaudIA iniciada com sucesso!                    ║${NC}"
+echo -e "${GREEN}║                                                      ║${NC}"
+echo -e "${GREEN}║  O bot vai enviar uma mensagem de boas-vindas        ║${NC}"
+echo -e "${GREEN}║  para você no Telegram em alguns instantes.          ║${NC}"
+echo -e "${GREEN}║                                                      ║${NC}"
+echo -e "${GREEN}║  Comandos úteis:                                     ║${NC}"
+echo -e "${GREEN}║    docker compose logs -f claudia   # ver logs       ║${NC}"
+echo -e "${GREEN}║    docker compose down              # parar          ║${NC}"
+echo -e "${GREEN}║    docker compose restart claudia  # reiniciar       ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "Para iniciar o ClaudIA:"
-echo -e "  ${GREEN}source .venv/bin/activate${NC}"
-echo -e "  ${GREEN}python main.py${NC}"
-echo ""
-echo -e "Para rodar em background com systemd, execute:"
-echo -e "  ${GREEN}sudo bash install_service.sh${NC}"
