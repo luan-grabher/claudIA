@@ -1,4 +1,5 @@
 import asyncio
+import os
 import yaml
 import sys
 from models.ollama_client import OllamaClient
@@ -7,6 +8,8 @@ from core.orchestrator import TaskOrchestrator
 from core.router import IntentRouter
 from channels.telegram_channel import TelegramChannel
 from skills.shell_skill import ShellSkill
+
+FIRST_RUN_MARKER = "/app/data/.first_run"
 
 
 def load_config_from_yaml_file() -> dict:
@@ -38,6 +41,17 @@ async def pull_required_models(ollama_client: OllamaClient, config: dict):
 
     for model_name in models_to_ensure:
         await ollama_client.pull_model_if_not_available(model_name)
+
+
+def is_first_run() -> bool:
+    return os.path.exists(FIRST_RUN_MARKER)
+
+
+def clear_first_run_marker():
+    try:
+        os.remove(FIRST_RUN_MARKER)
+    except OSError:
+        pass
 
 
 async def start_claudia():
@@ -72,8 +86,10 @@ async def start_claudia():
 
     telegram_channel = TelegramChannel(router=router, config=config)
 
+    first_run = is_first_run()
+
     print("[ClaudIA] Tudo pronto!")
-    await telegram_channel.start()
+    await telegram_channel.start(send_first_run=first_run, on_first_run_sent=clear_first_run_marker)
 
 
 if __name__ == "__main__":

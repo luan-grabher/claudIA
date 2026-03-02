@@ -1,0 +1,10 @@
+config.yml
+claudia_data/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+dist/
+build/
+*.egg-info/

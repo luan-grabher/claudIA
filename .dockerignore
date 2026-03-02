@@ -1,0 +1,11 @@
+.git
+.gitignore
+config.yml
+claudia_data/
+*.pyc
+__pycache__/
+.venv/
+*.egg-info/
+dist/
+build/
+.env

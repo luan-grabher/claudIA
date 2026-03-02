@@ -1,0 +1,43 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    environment:
+      # Limit to one model loaded at a time to conserve RAM; Ollama spills to disk via OS swap
+      - OLLAMA_KEEP_ALIVE=5m
+      - OLLAMA_NUM_PARALLEL=1
+      - OLLAMA_MAX_LOADED_MODELS=1
+    networks:
+      - claudia_net
+    # Uncomment the deploy section below if you have an NVIDIA GPU:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  claudia:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - ollama
+    volumes:
+      - ./config.yml:/app/config.yml:ro
+      - ./claudia_data:/app/data
+    networks:
+      - claudia_net
+    environment:
+      - PYTHONUNBUFFERED=1
+
+networks:
+  claudia_net:
+    driver: bridge
+
+volumes:
+  ollama_data:
