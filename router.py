@@ -1,0 +1,89 @@
+from models.ollama_client import OllamaClient
+from core.classifier import IntentClassifier
+from core.orchestrator import TaskOrchestrator
+
+GENERAL_ASSISTANT_SYSTEM_PROMPT = """Você é ClaudIA, uma assistente de IA pessoal que roda localmente.
+Seu nome vem de "Claudia", um nome brasileiro comum, e "IA" de Inteligência Artificial.
+Você é próxima, prestativa e direta — como uma funcionária de confiança.
+Responda sempre em português brasileiro de forma clara e objetiva.
+Você tem acesso ao terminal Linux do servidor onde está rodando."""
+
+CODE_ASSISTANT_SYSTEM_PROMPT = """Você é ClaudIA, assistente pessoal especializada em código.
+Analise, escreva ou corrija código conforme pedido.
+Responda em português com explicações claras e objetivas."""
+
+
+class IntentRouter:
+    def __init__(
+        self,
+        ollama_client: OllamaClient,
+        classifier: IntentClassifier,
+        orchestrator: TaskOrchestrator,
+        skills_registry: dict,
+        config: dict,
+    ):
+        self.ollama_client = ollama_client
+        self.classifier = classifier
+        self.orchestrator = orchestrator
+        self.skills_registry = skills_registry
+        self.config = config
+        self.default_model_name = config["models"]["default"]["name"]
+        self.code_model_name = config["models"].get("code", {}).get("name", self.default_model_name)
+
+    async def route_and_handle_message(self, user_message: str, has_image: bool = False) -> str:
+        if has_image:
+            return await self._handle_image_message(user_message)
+
+        classification = await self.classifier.classify_user_message(user_message)
+        intent_type = classification["tipo"]
+
+        print(f"[Router] Tipo: {intent_type} | Skill: {classification.get('skill_sugerida')} | Resumo: {classification.get('resumo_intencao')}")
+
+        if intent_type == "tarefa":
+            return await self._handle_task(user_message, classification)
+
+        if intent_type == "codigo":
+            return await self._handle_code_request(user_message)
+
+        if intent_type == "imagem":
+            return await self._handle_image_message(user_message)
+
+        return await self._handle_general_conversation(user_message, classification)
+
+    async def _handle_task(self, user_message: str, classification: dict) -> str:
+        suggested_skill = classification.get("skill_sugerida")
+
+        if suggested_skill and suggested_skill not in self.skills_registry:
+            suggested_skill = None
+
+        return await self.orchestrator.execute_task_with_planning(
+            task_description=user_message,
+            suggested_skill=suggested_skill,
+        )
+
+    async def _handle_code_request(self, user_message: str) -> str:
+        return await self.ollama_client.generate_completion(
+            prompt=user_message,
+            model_name=self.code_model_name,
+            system_prompt=CODE_ASSISTANT_SYSTEM_PROMPT,
+        )
+
+    async def _handle_general_conversation(self, user_message: str, classification: dict) -> str:
+        complexity = classification.get("complexidade")
+
+        return await self.ollama_client.generate_completion(
+            prompt=user_message,
+            model_name=self.default_model_name,
+            system_prompt=GENERAL_ASSISTANT_SYSTEM_PROMPT,
+        )
+
+    async def _handle_image_message(self, user_message: str) -> str:
+        vision_model = self.config["models"].get("vision", {}).get("name")
+        if not vision_model:
+            return "Não há modelo de visão configurado. Adicione um modelo vision no config.yml."
+
+        return await self.ollama_client.generate_completion(
+            prompt=user_message,
+            model_name=vision_model,
+            system_prompt=GENERAL_ASSISTANT_SYSTEM_PROMPT,
+        )
