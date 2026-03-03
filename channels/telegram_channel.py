@@ -1,3 +1,4 @@
+import asyncio
 from telegram import Update
 from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
 from core.router import IntentRouter
@@ -34,7 +35,13 @@ class TelegramChannel:
                 await app.shutdown()
 
         print("[ClaudIA] Bot Telegram iniciado. Aguardando mensagens...")
-        self._build_application().run_polling(allowed_updates=Update.ALL_TYPES)
+        app = self._build_application()
+        async with app:
+            await app.start()
+            await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+            await asyncio.Event().wait()
+            await app.updater.stop()
+            await app.stop()
 
     async def _send_first_run_message(self, app: Application) -> bool:
         allowed_ids = list(self.allowed_user_ids)
