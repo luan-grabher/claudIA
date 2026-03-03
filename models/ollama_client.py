@@ -57,7 +57,7 @@ class OllamaClient:
 
     async def pull_model_if_not_available(self, model_name: str):
         if not await self.check_if_model_is_available(model_name):
-            print(f"[Axon] Baixando modelo {model_name}...")
+            print(f"[ClaudIA] Baixando modelo {model_name}...")
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     f"{self.base_url}/api/pull",
@@ -65,4 +65,4 @@ class OllamaClient:
                     timeout=aiohttp.ClientTimeout(total=3600),
                 ) as response:
                     response.raise_for_status()
-                    print(f"[Axon] Modelo {model_name} baixado com sucesso.")
+                    print(f"[ClaudIA] Modelo {model_name} baixado com sucesso.")
