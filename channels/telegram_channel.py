@@ -152,7 +152,7 @@ class TelegramChannel:
         await update.message.chat.send_action("typing")
 
         try:
-            response = await self.router.route_and_handle_message(user_message)
+            response = await self.router.route_and_handle_message(user_message, user_id=update.effective_user.id)
             await self._send_long_message_in_chunks(update, response)
         except Exception as error:
             print(f"[Telegram] Erro ao processar mensagem: {error}")
@@ -168,7 +168,7 @@ class TelegramChannel:
         await update.message.chat.send_action("typing")
 
         try:
-            response = await self.router.route_and_handle_message(caption, has_image=True)
+            response = await self.router.route_and_handle_message(caption, has_image=True, user_id=update.effective_user.id)
             await self._send_long_message_in_chunks(update, response)
         except Exception as error:
             print(f"[Telegram] Erro ao processar foto: {error}")

@@ -1,7 +1,12 @@
-import json
 from models.ollama_client import OllamaClient
 
-TASK_PLANNER_SYSTEM_PROMPT = """Você é um agente de IA com acesso ao terminal Linux. Dado uma tarefa, crie um plano de execução.
+TASK_PLANNER_SYSTEM_PROMPT = """Você é um agente de IA autônomo com acesso ao terminal Linux. Dado uma tarefa, crie um plano de execução.
+
+Regras importantes:
+- Para qualquer informação sobre o sistema (arquivos, pastas, processos), use comandos shell para obter dados reais.
+- Prefira comandos simples e sempre disponíveis (ls, find, cat, ps, etc).
+- Se precisar de um programa que pode não estar instalado, inclua um passo para instalá-lo antes.
+- Seja autônomo: não peça confirmação, execute e resolva.
 
 Responda APENAS com JSON válido:
 {
@@ -17,15 +22,23 @@ Responda APENAS com JSON válido:
 
 Use "shell" para comandos de terminal. Use "raciocinio" para quando só precisa pensar/responder."""
 
-STEP_EVALUATOR_SYSTEM_PROMPT = """Você é um avaliador de progresso. Analise o resultado de um passo e decida se devemos continuar.
+STEP_EVALUATOR_SYSTEM_PROMPT = """Você é um avaliador de progresso autônomo. Analise o resultado de um passo e decida o que fazer.
+
+Se um comando falhou (exit code != 0 ou "not found" ou "command not found"):
+- Gere um comando de recuperação que resolva o problema (ex: instale o pacote faltante e reexecute).
+- Defina "deve_tentar_novamente": true e "comando_de_retry" com o comando corretivo.
 
 Responda APENAS com JSON:
 {
   "passo_foi_bem_sucedido": true|false,
   "devemos_continuar": true|false,
-  "proximo_passo_ajustado": "null ou novo comando/instrução se precisar ajustar",
+  "deve_tentar_novamente": true|false,
+  "comando_de_retry": "null ou comando corretivo que resolve o problema E executa a tarefa original",
+  "proximo_passo_ajustado": "null ou novo comando/instrução se precisar ajustar o próximo passo",
   "mensagem_para_usuario": "resumo do que aconteceu"
 }"""
+
+MAX_RETRIES_PER_STEP = 2
 
 
 class TaskOrchestrator:
@@ -42,12 +55,18 @@ class TaskOrchestrator:
         return await self._execute_with_full_planning_loop(task_description)
 
     async def _execute_direct_skill(self, task_description: str, skill_name: str) -> str:
-        skill = self.skills_registry[skill_name]
         command = await self._extract_command_for_skill(task_description, skill_name)
-        result = await skill.execute(command)
-
-        summary = await self._generate_user_friendly_summary(task_description, result)
-        return summary
+        step = {
+            "tipo": skill_name,
+            "descricao": task_description,
+            "comando_ou_instrucao": command,
+        }
+        last_result, _evaluation = await self._execute_step_with_retry(
+            task_description=task_description,
+            step=step,
+            step_index=0,
+        )
+        return await self._generate_user_friendly_summary(task_description, last_result)
 
     async def _extract_command_for_skill(self, task_description: str, skill_name: str) -> str:
         prompt = f"""Extraia o comando {skill_name} exato para executar a seguinte tarefa.
@@ -74,15 +93,12 @@ Tarefa: {task_description}"""
         final_messages = []
 
         for step_index, step in enumerate(steps[:self.max_steps]):
-            step_result = await self._execute_single_step(step)
-            execution_history.append({"step": step, "result": step_result})
-
-            evaluation = await self._evaluate_step_result(
+            step_result, evaluation = await self._execute_step_with_retry(
                 task_description=task_description,
                 step=step,
-                step_result=step_result,
                 step_index=step_index,
             )
+            execution_history.append({"step": step, "result": step_result})
 
             if evaluation.get("mensagem_para_usuario"):
                 final_messages.append(evaluation["mensagem_para_usuario"])
@@ -107,6 +123,33 @@ Tarefa: {task_description}"""
             print(f"[Orchestrator] Erro ao gerar plano: {error}")
             return {"plano_em_passos": []}
 
+    async def _execute_step_with_retry(self, task_description: str, step: dict, step_index: int) -> tuple:
+        step = dict(step)
+        last_result = ""
+        last_evaluation: dict = {"passo_foi_bem_sucedido": True, "devemos_continuar": True}
+
+        for attempt in range(MAX_RETRIES_PER_STEP + 1):
+            last_result = await self._execute_single_step(step)
+            last_evaluation = await self._evaluate_step_result(
+                task_description=task_description,
+                step=step,
+                step_result=last_result,
+                step_index=step_index,
+            )
+
+            should_retry = last_evaluation.get("deve_tentar_novamente", False)
+            retry_command = last_evaluation.get("comando_de_retry")
+
+            if should_retry and retry_command not in (None, "null", "") and attempt < MAX_RETRIES_PER_STEP:
+                print(f"[Orchestrator] Passo falhou (tentativa {attempt + 1}), recovery: {str(retry_command)[:100]}")
+                step["comando_ou_instrucao"] = retry_command
+                step["tipo"] = "shell"
+                continue
+
+            break
+
+        return last_result, last_evaluation
+
     async def _execute_single_step(self, step: dict) -> str:
         step_type = step.get("tipo", "raciocinio")
         instruction = step.get("comando_ou_instrucao", "")
@@ -123,6 +166,7 @@ Tarefa: {task_description}"""
         try:
             prompt = f"""Tarefa original: {task_description}
 Passo {step_index + 1}: {step.get("descricao", "")}
+Comando executado: {step.get("comando_ou_instrucao", "")}
 Resultado: {step_result[:2000]}"""
 
             return await self.ollama_client.generate_completion_expecting_json(
@@ -134,6 +178,8 @@ Resultado: {step_result[:2000]}"""
             return {
                 "passo_foi_bem_sucedido": True,
                 "devemos_continuar": True,
+                "deve_tentar_novamente": False,
+                "comando_de_retry": None,
                 "proximo_passo_ajustado": None,
                 "mensagem_para_usuario": step_result,
             }
