@@ -82,7 +82,7 @@ Write-Step "Gerando config.yml..."
 
 $config = @"
 telegram:
-  token: """$TELEGRAM_TOKEN"""
+  token: "$TELEGRAM_TOKEN"
   allowed_user_ids: [$TELEGRAM_USER_ID]
   language: "pt-BR"
 
