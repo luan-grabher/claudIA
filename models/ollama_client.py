@@ -45,6 +45,25 @@ class OllamaClient:
                 data = await response.json()
                 return json.loads(data["response"])
 
+    async def generate_chat_completion(self, messages: list, model_name: str, system_prompt: str = None) -> str:
+        payload = {
+            "model": model_name,
+            "messages": messages,
+            "stream": False,
+        }
+        if system_prompt:
+            payload["system"] = system_prompt
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{self.base_url}/api/chat",
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=300),
+            ) as response:
+                response.raise_for_status()
+                data = await response.json()
+                return data["message"]["content"].strip()
+
     async def check_if_model_is_available(self, model_name: str) -> bool:
         try:
             async with aiohttp.ClientSession() as session:
