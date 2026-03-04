@@ -38,45 +38,67 @@ fi
 
 # ─── Coletar credenciais ─────────────────────────────────────────────────────
 
-echo -e "${CYAN}Você precisará de:${NC}"
-echo "  1. Token do bot Telegram (obtenha em @BotFather)"
-echo "  2. Seu ID de usuário Telegram (obtenha em @userinfobot)"
-echo ""
+SKIP_CREDENTIALS=false
+if [ -f "config.yml" ]; then
+  echo -e "${YELLOW}config.yml já existe.${NC}"
+  while true; do
+    echo -n "Deseja manter as configurações existentes? (S/n) [Enter = sim]: "
+    read -r KEEP_CONFIG
+    if [ -z "$KEEP_CONFIG" ] || [[ "$KEEP_CONFIG" =~ ^[Ss]$ ]]; then
+      SKIP_CREDENTIALS=true
+      print_step "Preservando config.yml existente. Pulando coleta de credenciais."
+      break
+    elif [[ "$KEEP_CONFIG" =~ ^[Nn]$ ]]; then
+      SKIP_CREDENTIALS=false
+      print_step "Você optou por sobrescrever config.yml. Coletando credenciais..."
+      break
+    else
+      print_warn "Resposta inválida. Digite S para manter ou N para sobrescrever."
+    fi
+  done
+else
+  echo -e "${CYAN}Você precisará de:${NC}"
+  echo "  1. Token do bot Telegram (obtenha em @BotFather)"
+  echo "  2. Seu ID de usuário Telegram (obtenha em @userinfobot)"
+  echo ""
+fi
 
-while true; do
+if [ "$SKIP_CREDENTIALS" != "true" ]; then
+  while true; do
     echo -e "${YELLOW}Token do bot Telegram:${NC} "
     read -r TELEGRAM_TOKEN
 
     if [ -z "$TELEGRAM_TOKEN" ]; then
-        print_error "Token não pode ser vazio."
-        continue
+      print_error "Token não pode ser vazio."
+      continue
     fi
 
     print_step "Validando token do bot..."
     RESPONSE=$(curl -s "https://api.telegram.org/bot${TELEGRAM_TOKEN}/getMe" 2>/dev/null || true)
 
     if echo "$RESPONSE" | grep -q '"ok":true'; then
-        BOT_NAME=$(echo "$RESPONSE" | grep -o '"username":"[^"]*"' | cut -d'"' -f4)
-        print_step "✅ Token válido! Bot: @${BOT_NAME}"
-        break
+      BOT_NAME=$(echo "$RESPONSE" | grep -o '"username":"[^"]*"' | cut -d'"' -f4)
+      print_step "✅ Token válido! Bot: @${BOT_NAME}"
+      break
     else
-        print_error "❌ Token inválido ou sem acesso à internet. Tente novamente."
+      print_error "❌ Token inválido ou sem acesso à internet. Tente novamente."
     fi
-done
+  done
 
-echo ""
-while true; do
+  echo ""
+  while true; do
     echo -e "${YELLOW}Seu ID de usuário Telegram (somente números):${NC} "
     read -r TELEGRAM_USER_ID
 
     if [[ ! "$TELEGRAM_USER_ID" =~ ^[0-9]+$ ]]; then
-        print_error "ID inválido. Deve conter apenas números (ex: 123456789)."
-        continue
+      print_error "ID inválido. Deve conter apenas números (ex: 123456789)."
+      continue
     fi
 
     print_step "✅ User ID aceito: ${TELEGRAM_USER_ID}"
     break
-done
+  done
+fi
 
 # ─── Configurar swap (para suporte de LLM em disco quando RAM for insuficiente) ─
 

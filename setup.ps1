@@ -31,41 +31,63 @@ if ($LASTEXITCODE -ne 0) {
 Write-Step "Dependências mínimas encontradas."
 
 # Coletar credenciais
-Write-Host ""; Write-Info "Você precisará de:"
-Write-Host "  1. Token do bot Telegram (obtenha em @BotFather)"
-Write-Host "  2. Seu ID de usuário Telegram (obtenha em @userinfobot)"; Write-Host ""
+$skipCredentials = $false
+if (Test-Path -Path 'config.yml') {
+  while ($true) {
+    $keep = Read-Host -Prompt 'config.yml já existe. Manter configurações existentes? (S/n) [Enter = sim]'
+    if ([string]::IsNullOrWhiteSpace($keep) -or $keep -match '^[sS]$') {
+      $skipCredentials = $true
+      Write-Step "Preservando config.yml existente. Pulando coleta de credenciais."
+      break
+    } elseif ($keep -match '^[nN]$') {
+      $skipCredentials = $false
+      Write-Step "Você optou por sobrescrever config.yml. Coletando credenciais..."
+      break
+    } else {
+      Write-Warn "Resposta inválida. Digite S para manter ou N para sobrescrever (Enter = S)."
+    }
+  }
+} else {
+  Write-Host ""; Write-Info "Você precisará de:"
+  Write-Host "  1. Token do bot Telegram (obtenha em @BotFather)"
+  Write-Host "  2. Seu ID de usuário Telegram (obtenha em @userinfobot)"; Write-Host ""
+}
 
-while ($true) {
+if (-not $skipCredentials) {
+  while ($true) {
     $TELEGRAM_TOKEN = Read-Host -Prompt 'Token do bot Telegram'
     if ([string]::IsNullOrWhiteSpace($TELEGRAM_TOKEN)) {
-        Write-Err "Token não pode ser vazio."
-        continue
+      Write-Err "Token não pode ser vazio."
+      continue
     }
 
     Write-Step "Validando token do bot..."
     try {
-        $response = Invoke-RestMethod -Uri "https://api.telegram.org/bot$TELEGRAM_TOKEN/getMe" -Method Get -TimeoutSec 10 -ErrorAction Stop
+      $response = Invoke-RestMethod -Uri "https://api.telegram.org/bot$TELEGRAM_TOKEN/getMe" -Method Get -TimeoutSec 10 -ErrorAction Stop
     } catch {
-        $response = $null
+      $response = $null
     }
 
     if ($response -and $response.ok) {
-        $BOT_NAME = $response.result.username
-        Write-Step "✅ Token válido! Bot: @$BOT_NAME"
-        break
+      $BOT_NAME = $response.result.username
+      Write-Step "✅ Token válido! Bot: @$BOT_NAME"
+      break
     } else {
-        Write-Err "❌ Token inválido ou sem acesso à internet. Tente novamente."
+      Write-Err "❌ Token inválido ou sem acesso à internet. Tente novamente."
     }
-}
+  }
 
-while ($true) {
+  while ($true) {
     $TELEGRAM_USER_ID = Read-Host -Prompt 'Seu ID de usuário Telegram (somente números)'
     if ($TELEGRAM_USER_ID -match '^[0-9]+$') {
-        Write-Step "✅ User ID aceito: $TELEGRAM_USER_ID"
-        break
+      Write-Step "✅ User ID aceito: $TELEGRAM_USER_ID"
+      break
     } else {
-        Write-Err "ID inválido. Deve conter apenas números (ex: 123456789)."
+      Write-Err "ID inválido. Deve conter apenas números (ex: 123456789)."
     }
+  }
+} else {
+  Write-Step "Preservando config.yml existente."
 }
 
 # Configurar swap/pagefile - instruções para Windows
