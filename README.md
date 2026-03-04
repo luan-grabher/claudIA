@@ -71,12 +71,15 @@ telegram:
 
 ollama:
   base_url: "http://ollama:11434"  # nome do serviço no docker-compose
+  think: true                        # força modo thinking em modelos compatíveis
+  think_for_json: false              # mantém respostas JSON estáveis
+  log_thinking: false                # true para logar traço de pensamento
 
 models:
   classifier:
     name: qwen3:0.6b   # modelo leve para classificar
   default:
-    name: qwen3:1.7b   # modelo principal
+    name: qwen3:4b-thinking   # modelo principal com thinking
 
 skills:
   shell:

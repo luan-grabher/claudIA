@@ -57,8 +57,14 @@ def clear_first_run_marker():
 async def start_claudia():
     print("[ClaudIA] Iniciando...")
     config = load_config_from_yaml_file()
+    ollama_config = config.get("ollama", {})
 
-    ollama_client = OllamaClient(base_url=config["ollama"]["base_url"])
+    ollama_client = OllamaClient(
+        base_url=ollama_config["base_url"],
+        think_mode=ollama_config.get("think", True),
+        think_for_json=ollama_config.get("think_for_json", False),
+        log_thinking=ollama_config.get("log_thinking", False),
+    )
 
     print("[ClaudIA] Verificando modelos necessários no Ollama...")
     await pull_required_models(ollama_client, config)

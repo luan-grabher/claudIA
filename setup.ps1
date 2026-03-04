@@ -125,36 +125,47 @@ if (-not $skipCredentials) {
   Write-Step "✅ config.yml gerado."
 }
 else {
-  # Detectar Python disponível
-  $pythonCmd = $null
-  if (Get-Command python3 -ErrorAction SilentlyContinue) { $pythonCmd = 'python3' }
-  elseif (Get-Command python -ErrorAction SilentlyContinue) { $pythonCmd = 'python' }
-
   # Atualizar modelos (opcional)
   Write-Host ""
   $updateModels = Read-Host -Prompt 'Deseja atualizar os modelos para os padrões mais recentes? ([Y]/n)'
   if ([string]::IsNullOrWhiteSpace($updateModels) -or $updateModels -match '^[Yy]$') {
     Write-Step "Atualizando configurações iniciais no config.yml com base no config.example.yml..."
 
-    if ($pythonCmd) {
-      $updateScript = @'
-import yaml
-  with open('config.example.yml', 'r') as f:
-    template = yaml.safe_load(f) or {}
-with open('config.yml', 'r') as f:
-    config = yaml.safe_load(f) or {}
-  for section in ('ollama', 'models', 'orchestrator'):
-    if section in template:
-      config[section] = template[section]
-with open('config.yml', 'w') as f:
-    yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-'@
-      $updateScript | & $pythonCmd
-      Write-Step "✅ Configurações iniciais atualizadas a partir do config.example.yml."
+    $linhasExample = Get-Content -Path 'config.example.yml'
+    $linhasConfig  = Get-Content -Path 'config.yml'
+    $secoesSobreescrever = @('ollama:', 'models:', 'orchestrator:')
+    $todasSecoes = @('telegram:', 'ollama:', 'models:', 'skills:', 'orchestrator:')
+
+    $blocoAtual = $null
+    $blocosDoExample = @{}
+    foreach ($linha in $linhasExample) {
+      $secaoEncontrada = $todasSecoes | Where-Object { $linha -match "^$_" } | Select-Object -First 1
+      if ($secaoEncontrada) {
+        $blocoAtual = $secaoEncontrada
+        $blocosDoExample[$blocoAtual] = [System.Collections.Generic.List[string]]::new()
+        $blocosDoExample[$blocoAtual].Add($linha)
+      } elseif ($blocoAtual) {
+        $blocosDoExample[$blocoAtual].Add($linha)
+      }
     }
-    else {
-      Write-Warn "Python não encontrado. Atualize manualmente as configurações iniciais no config.yml com base no config.example.yml."
+
+    $resultado = [System.Collections.Generic.List[string]]::new()
+    $blocoAtual = $null
+    $pulandoBloco = $false
+    foreach ($linha in $linhasConfig) {
+      $secaoEncontrada = $todasSecoes | Where-Object { $linha -match "^$_" } | Select-Object -First 1
+      if ($secaoEncontrada) {
+        $blocoAtual = $secaoEncontrada
+        $pulandoBloco = $secoesSobreescrever -contains $secaoEncontrada
+        if ($pulandoBloco -and $blocosDoExample.ContainsKey($secaoEncontrada)) {
+          foreach ($l in $blocosDoExample[$secaoEncontrada]) { $resultado.Add($l) }
+        }
+      }
+      if (-not $pulandoBloco) { $resultado.Add($linha) }
     }
+
+    $resultado | Out-File -FilePath 'config.yml' -Encoding utf8
+    Write-Step "✅ Configurações iniciais atualizadas a partir do config.example.yml."
   }
   else {
     Write-Step "Configurações iniciais mantidas sem alteração."
@@ -163,32 +174,64 @@ with open('config.yml', 'w') as f:
   # Adicionar skills ausentes (modo add)
   Write-Step "Verificando skills no config.yml..."
 
-  if ($pythonCmd) {
-    $skillsScript = @'
-import yaml
-  with open('config.example.yml', 'r') as f:
-    template = yaml.safe_load(f) or {}
-  default_skills = (template.get('skills') or {})
-with open('config.yml', 'r') as f:
-    config = yaml.safe_load(f) or {}
-if 'skills' not in config:
-    config['skills'] = {}
-added = []
-for skill, defaults in default_skills.items():
-    if skill not in config['skills']:
-        config['skills'][skill] = defaults
-        added.append(skill)
-if added:
-    with open('config.yml', 'w') as f:
-        yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-    print(f"Skills adicionadas: {', '.join(added)}")
-else:
-    print("Nenhuma nova skill para adicionar.")
-'@
-    $skillsScript | & $pythonCmd
+  $linhasExample = Get-Content -Path 'config.example.yml'
+  $linhasConfig  = Get-Content -Path 'config.yml'
+
+  $dentroSkillsExample = $false
+  $blocosSkillsExample = @{}
+  $nomeSkillAtual = $null
+  foreach ($linha in $linhasExample) {
+    if ($linha -match '^skills:') { $dentroSkillsExample = $true; continue }
+    if ($dentroSkillsExample) {
+      if ($linha -match '^[a-zA-Z]') { $dentroSkillsExample = $false; continue }
+      if ($linha -match '^\s{2}(\w+):') {
+        $nomeSkillAtual = $Matches[1]
+        $blocosSkillsExample[$nomeSkillAtual] = [System.Collections.Generic.List[string]]::new()
+        $blocosSkillsExample[$nomeSkillAtual].Add($linha)
+      } elseif ($nomeSkillAtual) {
+        $blocosSkillsExample[$nomeSkillAtual].Add($linha)
+      }
+    }
+  }
+
+  $nomesSkillsNoConfig = [System.Collections.Generic.List[string]]::new()
+  $dentroSkillsConfig = $false
+  foreach ($linha in $linhasConfig) {
+    if ($linha -match '^skills:') { $dentroSkillsConfig = $true; continue }
+    if ($dentroSkillsConfig) {
+      if ($linha -match '^[a-zA-Z]') { $dentroSkillsConfig = $false; continue }
+      if ($linha -match '^\s{2}(\w+):') { $nomesSkillsNoConfig.Add($Matches[1]) }
+    }
+  }
+
+  $skillsParaAdicionar = $blocosSkillsExample.Keys | Where-Object { $_ -notin $nomesSkillsNoConfig }
+  if ($skillsParaAdicionar) {
+    $resultado = [System.Collections.Generic.List[string]]::new()
+    $dentroSkillsConfig = $false
+    $indiceInsercao = -1
+    $i = 0
+    foreach ($linha in $linhasConfig) {
+      $resultado.Add($linha)
+      if ($linha -match '^skills:') { $dentroSkillsConfig = $true }
+      if ($dentroSkillsConfig -and $linha -match '^\s') { $indiceInsercao = $i }
+      if ($dentroSkillsConfig -and $linha -match '^[a-zA-Z]' -and $linha -notmatch '^skills:') { $dentroSkillsConfig = $false }
+      $i++
+    }
+    $posicaoInsercao = $indiceInsercao + 1
+    foreach ($nomeSkill in $skillsParaAdicionar) {
+      $linhasSkill = $blocosSkillsExample[$nomeSkill]
+      $offset = 0
+      foreach ($l in $linhasSkill) {
+        $resultado.Insert($posicaoInsercao + $offset, $l)
+        $offset++
+      }
+      $posicaoInsercao += $offset
+    }
+    $resultado | Out-File -FilePath 'config.yml' -Encoding utf8
+    Write-Step "Skills adicionadas: $($skillsParaAdicionar -join ', ')"
   }
   else {
-    Write-Warn "Python não encontrado. Verifique manualmente se todas as skills estão no config.yml."
+    Write-Step "Nenhuma nova skill para adicionar."
   }
 }
 

@@ -3,10 +3,20 @@ import json
 
 
 class OllamaClient:
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, think_mode=None, think_for_json: bool = False, log_thinking: bool = False):
         self.base_url = base_url.rstrip("/")
+        self.think_mode = think_mode
+        self.think_for_json = think_for_json
+        self.log_thinking = log_thinking
 
-    async def generate_completion(self, prompt: str, model_name: str, system_prompt: str = None) -> str:
+    def _apply_think_to_payload(self, payload: dict, expects_json: bool = False, forcar_desativar_think: bool = False):
+        if forcar_desativar_think or self.think_mode is None:
+            return
+        if expects_json and not self.think_for_json:
+            return
+        payload["think"] = self.think_mode
+
+    async def generate_completion(self, prompt: str, model_name: str, system_prompt: str = None, forcar_desativar_think: bool = False) -> dict:
         payload = {
             "model": model_name,
             "prompt": prompt,
@@ -14,6 +24,7 @@ class OllamaClient:
         }
         if system_prompt:
             payload["system"] = system_prompt
+        self._apply_think_to_payload(payload, forcar_desativar_think=forcar_desativar_think)
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -23,7 +34,13 @@ class OllamaClient:
             ) as response:
                 response.raise_for_status()
                 data = await response.json()
-                return data["response"].strip()
+                thinking_gerado = data.get("thinking")
+                if self.log_thinking and thinking_gerado:
+                    print(f"[DEBUG] Pensamento (generate): {str(thinking_gerado)[:500]}")
+                return {
+                    "content": data["response"].strip(),
+                    "thinking": thinking_gerado,
+                }
 
     async def generate_completion_expecting_json(self, prompt: str, model_name: str, system_prompt: str = None) -> dict:
         payload = {
@@ -34,6 +51,7 @@ class OllamaClient:
         }
         if system_prompt:
             payload["system"] = system_prompt
+        self._apply_think_to_payload(payload, expects_json=True)
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -45,7 +63,7 @@ class OllamaClient:
                 data = await response.json()
                 return json.loads(data["response"])
 
-    async def generate_chat_completion(self, messages: list, model_name: str, system_prompt: str = None) -> str:
+    async def generate_chat_completion(self, messages: list, model_name: str, system_prompt: str = None, forcar_desativar_think: bool = False) -> dict:
         payload = {
             "model": model_name,
             "messages": messages,
@@ -53,6 +71,7 @@ class OllamaClient:
         }
         if system_prompt:
             payload["system"] = system_prompt
+        self._apply_think_to_payload(payload, forcar_desativar_think=forcar_desativar_think)
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -62,7 +81,13 @@ class OllamaClient:
             ) as response:
                 response.raise_for_status()
                 data = await response.json()
-                return data["message"]["content"].strip()
+                thinking_gerado = data.get("message", {}).get("thinking")
+                if self.log_thinking and thinking_gerado:
+                    print(f"[DEBUG] Pensamento (chat): {str(thinking_gerado)[:500]}")
+                return {
+                    "content": data["message"]["content"].strip(),
+                    "thinking": thinking_gerado,
+                }
 
     async def check_if_model_is_available(self, model_name: str) -> bool:
         try:
