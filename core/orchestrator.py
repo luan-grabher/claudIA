@@ -8,6 +8,7 @@ Regras importantes:
 - Prefira comandos simples e sempre disponíveis (ls, find, cat, ps, etc).
 - Se precisar de um programa que pode não estar instalado, inclua um passo para instalá-lo antes.
 - Seja autônomo: não peça confirmação, execute e resolva.
+- Gere comandos corretos: "ls -la /" para listar raiz, "ls -la ." para pasta atual, etc.
 
 Responda APENAS com JSON válido:
 {
@@ -18,7 +19,7 @@ Responda APENAS com JSON válido:
       "comando_ou_instrucao": "comando exato ou instrução"
     }
   ],
-  "estimativa_de_passos": 3
+  "estimativa_de_passos": 1
 }
 
 Use "shell" para comandos de terminal. Use "raciocinio" para quando só precisa pensar/responder."""
@@ -26,22 +27,25 @@ Use "shell" para comandos de terminal. Use "raciocinio" para quando só precisa 
 STEP_EVALUATOR_SYSTEM_PROMPT = """Você é um avaliador de progresso autônomo. Analise o resultado de um passo e decida o que fazer.
 
 Se um comando falhou (exit code != 0 ou "not found" ou "command not found"):
-- Gere um comando de recuperação que resolva o problema (ex: instale o pacote faltante e reexecute).
+- Gere um comando de recuperação que resolva o problema.
 - Defina "deve_tentar_novamente": true e "comando_de_retry" com o comando corretivo.
+
+IMPORTANTE: O campo "mensagem_para_usuario" DEVE conter um resumo útil do resultado.
+Se o comando listou arquivos, inclua a lista na mensagem. Se instalou algo, confirme. Nunca deixe este campo vazio.
 
 Responda APENAS com JSON:
 {
   "passo_foi_bem_sucedido": true|false,
   "devemos_continuar": true|false,
   "deve_tentar_novamente": true|false,
-  "comando_de_retry": "null ou comando corretivo que resolve o problema E executa a tarefa original",
-  "proximo_passo_ajustado": "null ou novo comando/instrução se precisar ajustar o próximo passo",
-  "mensagem_para_usuario": "resumo do que aconteceu (NUNCA deixe este campo vazio ou null)"
+  "comando_de_retry": "null ou comando corretivo",
+  "proximo_passo_ajustado": "null ou novo comando",
+  "mensagem_para_usuario": "resumo completo do resultado, incluindo os dados obtidos"
 }"""
 
 FRIENDLY_SUMMARY_SYSTEM_PROMPT = """Você é ClaudIA, uma assistente de IA pessoal que roda localmente.
-Explique o resultado de uma tarefa em linguagem natural, amigável e direta para o usuário.
-Responda em português brasileiro."""
+Apresente o resultado da tarefa de forma clara para o usuário em português.
+IMPORTANTE: Inclua os dados reais obtidos (arquivos listados, valores, etc). Não resuma sem mostrar os dados."""
 
 MAX_RETRIES_PER_STEP = 2
 
@@ -138,7 +142,7 @@ class TaskOrchestrator:
             retry_command = last_evaluation.get("comando_de_retry")
 
             if should_retry and retry_command not in (None, "null", "") and attempt < MAX_RETRIES_PER_STEP:
-                print(f"[Orchestrator] Passo falhou, aplicando recovery (tentativa {attempt + 1}): {str(retry_command)[:200]}")
+                print(f"[Orchestrator] Recovery (tentativa {attempt + 1}): {str(retry_command)[:200]}")
                 step["comando_ou_instrucao"] = retry_command
                 step["tipo"] = "shell"
                 continue
@@ -194,7 +198,7 @@ Resultado: {step_result[:2000]}"""
 Saída obtida:
 {raw_output[:3000]}
 
-Resuma o resultado de forma clara e amigável para o usuário."""
+Apresente o resultado de forma clara para o usuário, incluindo os dados reais obtidos."""
 
         resultado = await self.ollama_client.generate_completion(
             prompt=prompt,

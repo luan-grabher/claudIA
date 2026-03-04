@@ -44,11 +44,7 @@ class IntentRouter:
         self.config = config
         self.default_model_name = config["models"]["default"]["name"]
         self.code_model_name = config["models"].get("code", {}).get("name", self.default_model_name)
-
-        ollama_thinking_config = config.get("ollama", {})
-        self.thinking_habilitado_para_respostas = ollama_thinking_config.get("think", False)
-        self.log_thinking_habilitado = ollama_thinking_config.get("log_thinking", False)
-
+        self.log_thinking_habilitado = config.get("ollama", {}).get("log_thinking", False)
         self._conversation_histories: dict = {}
 
     def _get_skills_description(self) -> str:
@@ -94,14 +90,10 @@ class IntentRouter:
 
         classification = await self.classifier.classify_user_message(user_message)
         intent_type = classification["tipo"]
-        print(
-            f"[DEBUG] Fluxo: route_and_handle_message | Tipo: {intent_type} | Skill: {classification.get('skill_sugerida')} | Resumo: {classification.get('resumo_intencao')}")
+        print(f"[Router] Tipo: {intent_type} | Skill: {classification.get('skill_sugerida')} | Resumo: {classification.get('resumo_intencao')}")
 
         descricao_legivel = DESCRICAO_LEGIVEL_POR_TIPO_DE_INTENCAO.get(intent_type, intent_type)
-        await self._notificar_progresso_se_possivel(
-            progress_callback,
-            f"🧠 Entendi que sua solicitação é {descricao_legivel}.",
-        )
+        await self._notificar_progresso_se_possivel(progress_callback, f"🧠 Entendi que sua solicitação é {descricao_legivel}.")
 
         if intent_type == "tarefa":
             skill_sugerida = classification.get("skill_sugerida")
