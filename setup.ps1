@@ -7,7 +7,7 @@ Set-StrictMode -Version Latest
 
 function Write-Step { param($m) Write-Host "[ClaudIA] $m" -ForegroundColor Green }
 function Write-Warn { param($m) Write-Host "[ClaudIA] $m" -ForegroundColor Yellow }
-function Write-Err  { param($m) Write-Host "[ClaudIA] $m" -ForegroundColor Red }
+function Write-Err { param($m) Write-Host "[ClaudIA] $m" -ForegroundColor Red }
 function Write-Info { param($m) Write-Host "[ClaudIA] $m" -ForegroundColor Cyan }
 
 Write-Host ""
@@ -16,16 +16,22 @@ Write-Host "║       ClaudIA — Setup Inicial (Windows)   ║" -ForegroundColo
 Write-Host "╚══════════════════════════════════════════╝" -ForegroundColor Green
 Write-Host ""
 
+$configExamplePath = 'config.example.yml'
+if (-not (Test-Path -Path $configExamplePath)) {
+  Write-Err "Arquivo $configExamplePath não encontrado. Ele é necessário para gerar e atualizar o config.yml."
+  exit 1
+}
+
 # Verificar dependências
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-    Write-Err "Docker não está instalado. Instale Docker Desktop: https://docs.docker.com/get-docker/"
-    exit 1
+  Write-Err "Docker não está instalado. Instale Docker Desktop: https://docs.docker.com/get-docker/"
+  exit 1
 }
 
 & docker compose version > $null 2>&1
 if ($LASTEXITCODE -ne 0) {
-    Write-Err "Docker Compose (plugin v2) não está disponível. Ative o Docker Compose v2 ou atualize o Docker Desktop."
-    exit 1
+  Write-Err "Docker Compose (plugin v2) não está disponível. Ative o Docker Compose v2 ou atualize o Docker Desktop."
+  exit 1
 }
 
 Write-Step "Dependências mínimas encontradas."
@@ -39,15 +45,18 @@ if (Test-Path -Path 'config.yml') {
       $skipCredentials = $true
       Write-Step "Preservando config.yml existente. Pulando coleta de credenciais."
       break
-    } elseif ($keep -match '^[nN]$') {
+    }
+    elseif ($keep -match '^[nN]$') {
       $skipCredentials = $false
       Write-Step "Você optou por sobrescrever config.yml. Coletando credenciais..."
       break
-    } else {
+    }
+    else {
       Write-Warn "Resposta inválida. Digite S para manter ou N para sobrescrever (Enter = S)."
     }
   }
-} else {
+}
+else {
   Write-Host ""; Write-Info "Você precisará de:"
   Write-Host "  1. Token do bot Telegram (obtenha em @BotFather)"
   Write-Host "  2. Seu ID de usuário Telegram (obtenha em @userinfobot)"; Write-Host ""
@@ -64,7 +73,8 @@ if (-not $skipCredentials) {
     Write-Step "Validando token do bot..."
     try {
       $response = Invoke-RestMethod -Uri "https://api.telegram.org/bot$TELEGRAM_TOKEN/getMe" -Method Get -TimeoutSec 10 -ErrorAction Stop
-    } catch {
+    }
+    catch {
       $response = $null
     }
 
@@ -72,7 +82,8 @@ if (-not $skipCredentials) {
       $BOT_NAME = $response.result.username
       Write-Step "✅ Token válido! Bot: @$BOT_NAME"
       break
-    } else {
+    }
+    else {
       Write-Err "❌ Token inválido ou sem acesso à internet. Tente novamente."
     }
   }
@@ -82,105 +93,84 @@ if (-not $skipCredentials) {
     if ($TELEGRAM_USER_ID -match '^[0-9]+$') {
       Write-Step "✅ User ID aceito: $TELEGRAM_USER_ID"
       break
-    } else {
+    }
+    else {
       Write-Err "ID inválido. Deve conter apenas números (ex: 123456789)."
     }
   }
-} else {
+}
+else {
   Write-Step "Preservando config.yml existente."
 }
 
 # Configurar swap/pagefile - instruções para Windows
 $isAdmin = ([bool](([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)))
 if (-not $isAdmin) {
-    Write-Warn "Execução não-elevada: não será criado pagefile automaticamente."
-    Write-Warn "Para melhor desempenho com LLMs grandes, execute o PowerShell como Administrador e configure o arquivo de paginação (pagefile) nas configurações do sistema."
-} else {
-    Write-Info "Executando como Administrador. Se quiser ajustar o pagefile, use as configurações do sistema (System Properties -> Advanced -> Performance -> Settings -> Advanced -> Virtual memory)."
+  Write-Warn "Execução não-elevada: não será criado pagefile automaticamente."
+  Write-Warn "Para melhor desempenho com LLMs grandes, execute o PowerShell como Administrador e configure o arquivo de paginação (pagefile) nas configurações do sistema."
+}
+else {
+  Write-Info "Executando como Administrador. Se quiser ajustar o pagefile, use as configurações do sistema (System Properties -> Advanced -> Performance -> Settings -> Advanced -> Virtual memory)."
 }
 
 # Gerar/atualizar config.yml
 if (-not $skipCredentials) {
-    Write-Step "Gerando config.yml..."
+  Write-Step "Gerando config.yml a partir do config.example.yml..."
 
-    $config = @"
-telegram:
-  token: "$TELEGRAM_TOKEN"
-  allowed_user_ids: [$TELEGRAM_USER_ID]
-  language: "pt-BR"
+  $config = Get-Content -Path $configExamplePath -Raw
+  $config = $config -replace '(?m)(^\s*token:\s*)".*"', ('$1"' + $TELEGRAM_TOKEN + '"')
+  $config = $config -replace '(?m)(^\s*allowed_user_ids:\s*)\[[^\]]*\]', ('$1[' + $TELEGRAM_USER_ID + ']')
 
-ollama:
-  base_url: "http://ollama:11434"
-
-models:
-  classifier:
-    name: qwen3:0.6b
-  default:
-    name: qwen3:1.7b
-  code:
-    name: qwen2.5-coder:1.5b
-  vision:
-    name: llava:7b
-
-skills:
-  shell:
-    enabled: true
-    timeout_seconds: 60
-
-orchestrator:
-  max_steps_per_task: 8
-  step_timeout_seconds: 120
-"@
-
-    $config | Out-File -FilePath config.yml -Encoding utf8
-    Write-Step "✅ config.yml gerado."
-} else {
-    # Detectar Python disponível
-    $pythonCmd = $null
-    if (Get-Command python3 -ErrorAction SilentlyContinue) { $pythonCmd = 'python3' }
-    elseif (Get-Command python -ErrorAction SilentlyContinue) { $pythonCmd = 'python' }
-
-    # Atualizar modelos (opcional)
-    Write-Host ""
-    $updateModels = Read-Host -Prompt 'Deseja atualizar os modelos para os padrões mais recentes? ([Y]/n)'
-    if ([string]::IsNullOrWhiteSpace($updateModels) -or $updateModels -match '^[Yy]$') {
-        Write-Step "Atualizando modelos no config.yml..."
-
-        if ($pythonCmd) {
-            $updateScript = @'
-import yaml
-with open('config.yml', 'r') as f:
-    config = yaml.safe_load(f)
-config['models'] = {
-    'classifier': {'name': 'qwen3:0.6b'},
-    'default': {'name': 'qwen3:1.7b'},
-    'code': {'name': 'qwen2.5-coder:1.5b'},
-    'vision': {'name': 'llava:7b'},
+  $config | Out-File -FilePath config.yml -Encoding utf8
+  Write-Step "✅ config.yml gerado."
 }
+else {
+  # Detectar Python disponível
+  $pythonCmd = $null
+  if (Get-Command python3 -ErrorAction SilentlyContinue) { $pythonCmd = 'python3' }
+  elseif (Get-Command python -ErrorAction SilentlyContinue) { $pythonCmd = 'python' }
+
+  # Atualizar modelos (opcional)
+  Write-Host ""
+  $updateModels = Read-Host -Prompt 'Deseja atualizar os modelos para os padrões mais recentes? ([Y]/n)'
+  if ([string]::IsNullOrWhiteSpace($updateModels) -or $updateModels -match '^[Yy]$') {
+    Write-Step "Atualizando configurações iniciais no config.yml com base no config.example.yml..."
+
+    if ($pythonCmd) {
+      $updateScript = @'
+import yaml
+  with open('config.example.yml', 'r') as f:
+    template = yaml.safe_load(f) or {}
+with open('config.yml', 'r') as f:
+    config = yaml.safe_load(f) or {}
+  for section in ('ollama', 'models', 'orchestrator'):
+    if section in template:
+      config[section] = template[section]
 with open('config.yml', 'w') as f:
     yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 '@
-            $updateScript | & $pythonCmd
-            Write-Step "✅ Modelos atualizados."
-        } else {
-            Write-Warn "Python não encontrado. Atualize os modelos manualmente no config.yml."
-        }
-    } else {
-        Write-Step "Modelos mantidos sem alteração."
+      $updateScript | & $pythonCmd
+      Write-Step "✅ Configurações iniciais atualizadas a partir do config.example.yml."
     }
+    else {
+      Write-Warn "Python não encontrado. Atualize manualmente as configurações iniciais no config.yml com base no config.example.yml."
+    }
+  }
+  else {
+    Write-Step "Configurações iniciais mantidas sem alteração."
+  }
 
-    # Adicionar skills ausentes (modo add)
-    Write-Step "Verificando skills no config.yml..."
+  # Adicionar skills ausentes (modo add)
+  Write-Step "Verificando skills no config.yml..."
 
-    if ($pythonCmd) {
-        $skillsScript = @'
+  if ($pythonCmd) {
+    $skillsScript = @'
 import yaml
-default_skills = {
-    'shell': {'enabled': True, 'timeout_seconds': 60},
-    'web_search': {'enabled': False, 'searxng_url': 'http://localhost:8080'},
-}
+  with open('config.example.yml', 'r') as f:
+    template = yaml.safe_load(f) or {}
+  default_skills = (template.get('skills') or {})
 with open('config.yml', 'r') as f:
-    config = yaml.safe_load(f)
+    config = yaml.safe_load(f) or {}
 if 'skills' not in config:
     config['skills'] = {}
 added = []
@@ -195,10 +185,11 @@ if added:
 else:
     print("Nenhuma nova skill para adicionar.")
 '@
-        $skillsScript | & $pythonCmd
-    } else {
-        Write-Warn "Python não encontrado. Verifique manualmente se todas as skills estão no config.yml."
-    }
+    $skillsScript | & $pythonCmd
+  }
+  else {
+    Write-Warn "Python não encontrado. Verifique manualmente se todas as skills estão no config.yml."
+  }
 }
 
 # Criar marcador de primeira execução
@@ -209,14 +200,15 @@ New-Item -ItemType File -Path (Join-Path claudia_data '.first_run') -Force | Out
 # Iniciar Docker
 Write-Step "Construindo e iniciando containers Docker..."
 try {
-    & docker compose build
-    if ($LASTEXITCODE -ne 0) { throw 'Erro ao construir imagens Docker.' }
-    & docker compose up -d
-    if ($LASTEXITCODE -ne 0) { throw 'Erro ao iniciar containers Docker.' }
-} catch {
-    Write-Err "Falha ao executar Docker Compose: $_"
-    Write-Err "Certifique-se de que o Docker Desktop está em execução e tente novamente."
-    exit 1
+  & docker compose build
+  if ($LASTEXITCODE -ne 0) { throw 'Erro ao construir imagens Docker.' }
+  & docker compose up -d
+  if ($LASTEXITCODE -ne 0) { throw 'Erro ao iniciar containers Docker.' }
+}
+catch {
+  Write-Err "Falha ao executar Docker Compose: $_"
+  Write-Err "Certifique-se de que o Docker Desktop está em execução e tente novamente."
+  exit 1
 }
 
 Write-Host ""

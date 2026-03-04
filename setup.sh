@@ -19,6 +19,12 @@ echo -e "${GREEN}║       ClaudIA — Setup Inicial            ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════╝${NC}"
 echo ""
 
+CONFIG_EXAMPLE="config.example.yml"
+if [ ! -f "$CONFIG_EXAMPLE" ]; then
+  print_error "Arquivo $CONFIG_EXAMPLE não encontrado. Ele é necessário para gerar e atualizar o config.yml."
+  exit 1
+fi
+
 # ─── Verificar dependências ─────────────────────────────────────────────────
 
 if ! command -v docker &>/dev/null; then
@@ -125,73 +131,59 @@ fi
 # ─── Gerar/atualizar config.yml ──────────────────────────────────────────────
 
 if [ "$SKIP_CREDENTIALS" != "true" ]; then
-    print_step "Gerando config.yml..."
+  print_step "Gerando config.yml a partir do config.example.yml..."
 
-    cat > config.yml <<EOF
-telegram:
-  token: "${TELEGRAM_TOKEN}"
-  allowed_user_ids: [${TELEGRAM_USER_ID}]
-  language: "pt-BR"
-
-ollama:
-  base_url: "http://ollama:11434"
-
-models:
-  classifier:
-    name: qwen3:0.6b
-  default:
-    name: qwen3:1.7b
-  code:
-    name: qwen2.5-coder:1.5b
-  vision:
-    name: llava:7b
-
-skills:
-  shell:
-    enabled: true
-    timeout_seconds: 60
-
-orchestrator:
-  max_steps_per_task: 8
-  step_timeout_seconds: 120
-EOF
+  sed -E \
+    -e "s|^([[:space:]]*token:[[:space:]]*).*$|\\1\"${TELEGRAM_TOKEN}\"|" \
+    -e "s|^([[:space:]]*allowed_user_ids:[[:space:]]*)\[[^]]*\](.*)$|\\1[${TELEGRAM_USER_ID}]\\2|" \
+    "$CONFIG_EXAMPLE" > config.yml
 
     print_step "✅ config.yml gerado."
 else
+  PYTHON_CMD=""
+  if command -v python3 &>/dev/null; then
+    PYTHON_CMD="python3"
+  elif command -v python &>/dev/null; then
+    PYTHON_CMD="python"
+  fi
+
     # ─── Atualizar modelos (opcional) ─────────────────────────────────────────
     echo ""
     echo -n "Deseja atualizar os modelos para os padrões mais recentes? ([Y]/n): "
     read -r UPDATE_MODELS
     if [ -z "$UPDATE_MODELS" ] || [[ "$UPDATE_MODELS" =~ ^[Yy]$ ]]; then
-        print_step "Atualizando modelos no config.yml..."
-        python3 - <<'PYEOF'
+    print_step "Atualizando configurações iniciais no config.yml com base no config.example.yml..."
+    if [ -n "$PYTHON_CMD" ]; then
+    "$PYTHON_CMD" - <<'PYEOF'
 import yaml
+with open('config.example.yml', 'r') as f:
+  template = yaml.safe_load(f) or {}
 with open('config.yml', 'r') as f:
-    config = yaml.safe_load(f)
-config['models'] = {
-    'classifier': {'name': 'qwen3:0.6b'},
-    'default': {'name': 'qwen3:1.7b'},
-    'code': {'name': 'qwen2.5-coder:1.5b'},
-    'vision': {'name': 'llava:7b'},
-}
+  config = yaml.safe_load(f) or {}
+for section in ('ollama', 'models', 'orchestrator'):
+  if section in template:
+    config[section] = template[section]
 with open('config.yml', 'w') as f:
     yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 PYEOF
-        print_step "✅ Modelos atualizados."
+    print_step "✅ Configurações iniciais atualizadas a partir do config.example.yml."
     else
-        print_step "Modelos mantidos sem alteração."
+      print_warn "Python não encontrado. Atualize manualmente as configurações iniciais no config.yml com base no config.example.yml."
+    fi
+    else
+    print_step "Configurações iniciais mantidas sem alteração."
     fi
 
     # ─── Adicionar skills ausentes (modo add) ─────────────────────────────────
     print_step "Verificando skills no config.yml..."
-    python3 - <<'PYEOF'
+  if [ -n "$PYTHON_CMD" ]; then
+  "$PYTHON_CMD" - <<'PYEOF'
 import yaml
-default_skills = {
-    'shell': {'enabled': True, 'timeout_seconds': 60},
-    'web_search': {'enabled': False, 'searxng_url': 'http://localhost:8080'},
-}
+with open('config.example.yml', 'r') as f:
+  template = yaml.safe_load(f) or {}
+default_skills = template.get('skills') or {}
 with open('config.yml', 'r') as f:
-    config = yaml.safe_load(f)
+  config = yaml.safe_load(f) or {}
 if 'skills' not in config:
     config['skills'] = {}
 added = []
@@ -206,6 +198,9 @@ if added:
 else:
     print("Nenhuma nova skill para adicionar.")
 PYEOF
+  else
+    print_warn "Python não encontrado. Verifique manualmente se todas as skills estão no config.yml com base no config.example.yml."
+  fi
 fi
 
 # ─── Criar marcador de primeira execução ─────────────────────────────────────
