@@ -8,13 +8,13 @@ ollama:
 
 models:
   classifier:
-    name: qwen2.5:3b       # modelo leve só para classificar intenção
+    name: qwen3:0.6b        # modelo leve só para classificar intenção
   default:
-    name: qwen2.5:7b       # modelo principal para respostas gerais
+    name: qwen3:1.7b        # modelo principal para respostas gerais
   code:
-    name: qwen2.5-coder:7b # modelo focado em código (opcional)
+    name: qwen2.5-coder:1.5b # modelo focado em código (opcional)
   vision:
-    name: llava:7b         # modelo para imagens (opcional)
+    name: llava:7b          # modelo para imagens (opcional)
 
 skills:
   shell:

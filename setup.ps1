@@ -113,11 +113,11 @@ ollama:
 
 models:
   classifier:
-    name: qwen2.5:3b
+    name: qwen3:0.6b
   default:
-    name: qwen2.5:7b
+    name: qwen3:1.7b
   code:
-    name: qwen2.5-coder:7b
+    name: qwen2.5-coder:1.5b
   vision:
     name: llava:7b
 

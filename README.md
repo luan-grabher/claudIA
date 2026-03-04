@@ -4,7 +4,7 @@ ClaudIA é um agente de IA que roda 100% localmente na sua VPS usando modelos do
 
 ## Como funciona
 
-Cada mensagem que você manda passa por um modelo classificador leve (3B) que decide:
+Cada mensagem que você manda passa por um modelo classificador leve (0.6B) que decide:
 
 - É uma **pergunta simples**? Responde direto.
 - É uma **tarefa** (instalar, executar, criar)? Cria um plano e executa no terminal.
@@ -74,9 +74,9 @@ ollama:
 
 models:
   classifier:
-    name: qwen2.5:3b   # modelo leve para classificar
+    name: qwen3:0.6b   # modelo leve para classificar
   default:
-    name: qwen2.5:7b   # modelo principal
+    name: qwen3:1.7b   # modelo principal
 
 skills:
   shell:
