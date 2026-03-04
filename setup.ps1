@@ -99,10 +99,11 @@ if (-not $isAdmin) {
     Write-Info "Executando como Administrador. Se quiser ajustar o pagefile, use as configurações do sistema (System Properties -> Advanced -> Performance -> Settings -> Advanced -> Virtual memory)."
 }
 
-# Gerar config.yml
-Write-Step "Gerando config.yml..."
+# Gerar/atualizar config.yml
+if (-not $skipCredentials) {
+    Write-Step "Gerando config.yml..."
 
-$config = @"
+    $config = @"
 telegram:
   token: "$TELEGRAM_TOKEN"
   allowed_user_ids: [$TELEGRAM_USER_ID]
@@ -131,8 +132,74 @@ orchestrator:
   step_timeout_seconds: 120
 "@
 
-$config | Out-File -FilePath config.yml -Encoding utf8
-Write-Step "✅ config.yml gerado."
+    $config | Out-File -FilePath config.yml -Encoding utf8
+    Write-Step "✅ config.yml gerado."
+} else {
+    # Detectar Python disponível
+    $pythonCmd = $null
+    if (Get-Command python3 -ErrorAction SilentlyContinue) { $pythonCmd = 'python3' }
+    elseif (Get-Command python -ErrorAction SilentlyContinue) { $pythonCmd = 'python' }
+
+    # Atualizar modelos (opcional)
+    Write-Host ""
+    $updateModels = Read-Host -Prompt 'Deseja atualizar os modelos para os padrões mais recentes? ([Y]/n)'
+    if ([string]::IsNullOrWhiteSpace($updateModels) -or $updateModels -match '^[Yy]$') {
+        Write-Step "Atualizando modelos no config.yml..."
+
+        if ($pythonCmd) {
+            $updateScript = @'
+import yaml
+with open('config.yml', 'r') as f:
+    config = yaml.safe_load(f)
+config['models'] = {
+    'classifier': {'name': 'qwen3:0.6b'},
+    'default': {'name': 'qwen3:1.7b'},
+    'code': {'name': 'qwen2.5-coder:1.5b'},
+    'vision': {'name': 'llava:7b'},
+}
+with open('config.yml', 'w') as f:
+    yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+'@
+            $updateScript | & $pythonCmd
+            Write-Step "✅ Modelos atualizados."
+        } else {
+            Write-Warn "Python não encontrado. Atualize os modelos manualmente no config.yml."
+        }
+    } else {
+        Write-Step "Modelos mantidos sem alteração."
+    }
+
+    # Adicionar skills ausentes (modo add)
+    Write-Step "Verificando skills no config.yml..."
+
+    if ($pythonCmd) {
+        $skillsScript = @'
+import yaml
+default_skills = {
+    'shell': {'enabled': True, 'timeout_seconds': 60},
+    'web_search': {'enabled': False, 'searxng_url': 'http://localhost:8080'},
+}
+with open('config.yml', 'r') as f:
+    config = yaml.safe_load(f)
+if 'skills' not in config:
+    config['skills'] = {}
+added = []
+for skill, defaults in default_skills.items():
+    if skill not in config['skills']:
+        config['skills'][skill] = defaults
+        added.append(skill)
+if added:
+    with open('config.yml', 'w') as f:
+        yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    print(f"Skills adicionadas: {', '.join(added)}")
+else:
+    print("Nenhuma nova skill para adicionar.")
+'@
+        $skillsScript | & $pythonCmd
+    } else {
+        Write-Warn "Python não encontrado. Verifique manualmente se todas as skills estão no config.yml."
+    }
+}
 
 # Criar marcador de primeira execução
 Write-Step "Marcando como primeira execução..."
