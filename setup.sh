@@ -122,11 +122,12 @@ else
     print_step "✅ Swap configurado (${SWAP_SIZE_MB}MB)."
 fi
 
-# ─── Gerar config.yml ────────────────────────────────────────────────────────
+# ─── Gerar/atualizar config.yml ──────────────────────────────────────────────
 
-print_step "Gerando config.yml..."
+if [ "$SKIP_CREDENTIALS" != "true" ]; then
+    print_step "Gerando config.yml..."
 
-cat > config.yml <<EOF
+    cat > config.yml <<EOF
 telegram:
   token: "${TELEGRAM_TOKEN}"
   allowed_user_ids: [${TELEGRAM_USER_ID}]
@@ -137,11 +138,11 @@ ollama:
 
 models:
   classifier:
-    name: qwen2.5:3b
+    name: qwen3:0.6b
   default:
-    name: qwen2.5:7b
+    name: qwen3:1.7b
   code:
-    name: qwen2.5-coder:7b
+    name: qwen2.5-coder:1.5b
   vision:
     name: llava:7b
 
@@ -155,7 +156,57 @@ orchestrator:
   step_timeout_seconds: 120
 EOF
 
-print_step "✅ config.yml gerado."
+    print_step "✅ config.yml gerado."
+else
+    # ─── Atualizar modelos (opcional) ─────────────────────────────────────────
+    echo ""
+    echo -n "Deseja atualizar os modelos para os padrões mais recentes? ([Y]/n): "
+    read -r UPDATE_MODELS
+    if [ -z "$UPDATE_MODELS" ] || [[ "$UPDATE_MODELS" =~ ^[Yy]$ ]]; then
+        print_step "Atualizando modelos no config.yml..."
+        python3 - <<'PYEOF'
+import yaml
+with open('config.yml', 'r') as f:
+    config = yaml.safe_load(f)
+config['models'] = {
+    'classifier': {'name': 'qwen3:0.6b'},
+    'default': {'name': 'qwen3:1.7b'},
+    'code': {'name': 'qwen2.5-coder:1.5b'},
+    'vision': {'name': 'llava:7b'},
+}
+with open('config.yml', 'w') as f:
+    yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+PYEOF
+        print_step "✅ Modelos atualizados."
+    else
+        print_step "Modelos mantidos sem alteração."
+    fi
+
+    # ─── Adicionar skills ausentes (modo add) ─────────────────────────────────
+    print_step "Verificando skills no config.yml..."
+    python3 - <<'PYEOF'
+import yaml
+default_skills = {
+    'shell': {'enabled': True, 'timeout_seconds': 60},
+    'web_search': {'enabled': False, 'searxng_url': 'http://localhost:8080'},
+}
+with open('config.yml', 'r') as f:
+    config = yaml.safe_load(f)
+if 'skills' not in config:
+    config['skills'] = {}
+added = []
+for skill, defaults in default_skills.items():
+    if skill not in config['skills']:
+        config['skills'][skill] = defaults
+        added.append(skill)
+if added:
+    with open('config.yml', 'w') as f:
+        yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    print(f"Skills adicionadas: {', '.join(added)}")
+else:
+    print("Nenhuma nova skill para adicionar.")
+PYEOF
+fi
 
 # ─── Criar marcador de primeira execução ─────────────────────────────────────
 
