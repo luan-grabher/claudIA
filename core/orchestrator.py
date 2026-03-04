@@ -1,3 +1,4 @@
+import traceback
 from models.ollama_client import OllamaClient
 
 TASK_PLANNER_SYSTEM_PROMPT = """Você é um agente de IA autônomo com acesso ao terminal Linux. Dado uma tarefa, crie um plano de execução.
@@ -49,85 +50,63 @@ class TaskOrchestrator:
         self.max_steps = config.get("orchestrator", {}).get("max_steps_per_task", 8)
 
     async def execute_task_with_planning(self, task_description: str, suggested_skill: str = None) -> str:
-        if suggested_skill and suggested_skill in self.skills_registry:
-            return await self._execute_direct_skill(task_description, suggested_skill)
-        return await self._execute_with_full_planning_loop(task_description)
+        print(f"[Orchestrator] Iniciando execução de tarefa. Skill sugerida: {suggested_skill}")
+        return await self._execute_with_full_planning_loop(task_description, suggested_skill)
 
-    async def _execute_direct_skill(self, task_description: str, skill_name: str) -> str:
-        command = await self._extract_command_for_skill(task_description, skill_name)
-        step = {
-            "tipo": skill_name,
-            "descricao": task_description,
-            "comando_ou_instrucao": command,
-        }
-        last_result, _evaluation = await self._execute_step_with_retry(
-            task_description=task_description,
-            step=step,
-            step_index=0,
-        )
-        return await self._generate_user_friendly_summary(task_description, last_result)
-
-    async def _extract_command_for_skill(self, task_description: str, skill_name: str) -> str:
-        prompt = f"""Extraia o comando {skill_name} exato para executar a seguinte tarefa.
-Responda APENAS com o comando, sem explicação.
-
-Tarefa: {task_description}"""
-
-        resultado = await self.ollama_client.generate_completion(
-            prompt=prompt,
-            model_name=self.default_model_name,
-        )
-        return resultado["content"]
-
-    async def _execute_with_full_planning_loop(self, task_description: str) -> str:
-        plan = await self._generate_execution_plan(task_description)
+    async def _execute_with_full_planning_loop(self, task_description: str, skill_hint: str = None) -> str:
+        plan = await self._generate_execution_plan(task_description, skill_hint)
         steps = plan.get("plano_em_passos", [])
 
         if not steps:
+            print(f"[Orchestrator] Plano vazio, chamando modelo diretamente.")
             resultado = await self.ollama_client.generate_completion(
                 prompt=task_description,
                 model_name=self.default_model_name,
             )
             return resultado["content"]
 
-        print(f"[DEBUG] Pensamento: plano gerado com {len(steps)} passos")
-        print(f"[DEBUG] Fluxo atual: iniciar loop de execução do plano")
+        print(f"[Orchestrator] Plano gerado com {len(steps)} passos.")
         execution_history = []
         final_messages = []
 
         for step_index, step in enumerate(steps[:self.max_steps]):
-            print(f"[DEBUG] Fluxo atual: executando passo {step_index+1} — {step.get('descricao')}")
+            print(f"[Orchestrator] Executando passo {step_index + 1}/{len(steps)}: {step.get('descricao')}")
             step_result, evaluation = await self._execute_step_with_retry(
                 task_description=task_description,
                 step=step,
                 step_index=step_index,
             )
             execution_history.append({"step": step, "result": step_result})
+            print(f"[Orchestrator] Resultado do passo {step_index + 1} (trecho): {step_result[:300]}")
 
             if evaluation.get("mensagem_para_usuario"):
                 final_messages.append(evaluation["mensagem_para_usuario"])
 
             if not evaluation.get("devemos_continuar", True):
+                print(f"[Orchestrator] Avaliador sinalizou parada após passo {step_index + 1}.")
                 break
 
             adjusted_next = evaluation.get("proximo_passo_ajustado")
             if adjusted_next and adjusted_next != "null" and step_index + 1 < len(steps):
+                print(f"[Orchestrator] Ajustando próximo passo para: {str(adjusted_next)[:200]}")
                 steps[step_index + 1]["comando_ou_instrucao"] = adjusted_next
 
         return "\n\n".join(final_messages) if final_messages else "Tarefa concluída."
 
-    async def _generate_execution_plan(self, task_description: str) -> dict:
+    async def _generate_execution_plan(self, task_description: str, skill_hint: str = None) -> dict:
+        skill_context = f"\nSkill disponível e preferencial para esta tarefa: {skill_hint}" if skill_hint else ""
         try:
-            print(f"[DEBUG] Pensamento: solicitando plano ao modelo")
+            print(f"[Orchestrator] Solicitando plano ao modelo...")
             plan = await self.ollama_client.generate_completion_expecting_json(
-                prompt=f"Tarefa: {task_description}",
+                prompt=f"Tarefa: {task_description}{skill_context}",
                 model_name=self.default_model_name,
                 system_prompt=TASK_PLANNER_SYSTEM_PROMPT,
             )
-            print(f"[DEBUG] Fluxo atual: plano recebido — resumo: {str(plan)[:400]}")
+            print(f"[Orchestrator] Plano recebido: {str(plan)[:400]}")
             return plan
         except Exception as error:
             print(f"[Orchestrator] Erro ao gerar plano: {error}")
+            print(traceback.format_exc())
             return {"plano_em_passos": []}
 
     async def _execute_step_with_retry(self, task_description: str, step: dict, step_index: int) -> tuple:
@@ -136,8 +115,7 @@ Tarefa: {task_description}"""
         last_evaluation: dict = {"passo_foi_bem_sucedido": True, "devemos_continuar": True}
 
         for attempt in range(MAX_RETRIES_PER_STEP + 1):
-            print(f"[DEBUG] Fluxo atual: executando comando do passo (tentativa {attempt+1})")
-            print(f"[DEBUG] Pensamento: executar como tipo={step.get('tipo')} comando=" + str(step.get('comando_ou_instrucao')[:200]))
+            print(f"[Orchestrator] Tentativa {attempt + 1} — tipo={step.get('tipo')} comando={str(step.get('comando_ou_instrucao', ''))[:200]}")
             last_result = await self._execute_single_step(step)
             last_evaluation = await self._evaluate_step_result(
                 task_description=task_description,
@@ -150,7 +128,7 @@ Tarefa: {task_description}"""
             retry_command = last_evaluation.get("comando_de_retry")
 
             if should_retry and retry_command not in (None, "null", "") and attempt < MAX_RETRIES_PER_STEP:
-                print(f"[Orchestrator] Passo falhou (tentativa {attempt + 1}), recovery: {str(retry_command)[:100]}")
+                print(f"[Orchestrator] Passo falhou, aplicando recovery (tentativa {attempt + 1}): {str(retry_command)[:200]}")
                 step["comando_ou_instrucao"] = retry_command
                 step["tipo"] = "shell"
                 continue
@@ -164,10 +142,10 @@ Tarefa: {task_description}"""
         instruction = step.get("comando_ou_instrucao", "")
 
         if step_type == "shell" and "shell" in self.skills_registry:
-            print(f"[DEBUG] Fluxo atual: chamando skill 'shell' com comando: {instruction[:200]}")
+            print(f"[Orchestrator] Chamando skill 'shell': {instruction[:200]}")
             return await self.skills_registry["shell"].execute(instruction)
 
-        print(f"[DEBUG] Fluxo atual: chamando modelo para raciocínio com prompt (trecho): {instruction[:200]}")
+        print(f"[Orchestrator] Chamando modelo para raciocínio: {instruction[:200]}")
         resultado = await self.ollama_client.generate_completion(
             prompt=instruction,
             model_name=self.default_model_name,
@@ -176,6 +154,7 @@ Tarefa: {task_description}"""
 
     async def _evaluate_step_result(self, task_description: str, step: dict, step_result: str, step_index: int) -> dict:
         try:
+            print(f"[Orchestrator] Avaliando resultado do passo {step_index + 1}...")
             prompt = f"""Tarefa original: {task_description}
 Passo {step_index + 1}: {step.get("descricao", "")}
 Comando executado: {step.get("comando_ou_instrucao", "")}
@@ -186,7 +165,9 @@ Resultado: {step_result[:2000]}"""
                 model_name=self.default_model_name,
                 system_prompt=STEP_EVALUATOR_SYSTEM_PROMPT,
             )
-        except Exception:
+        except Exception as error:
+            print(f"[Orchestrator] Erro ao avaliar passo {step_index + 1}: {error}")
+            print(traceback.format_exc())
             return {
                 "passo_foi_bem_sucedido": True,
                 "devemos_continuar": True,

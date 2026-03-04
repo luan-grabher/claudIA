@@ -1,5 +1,6 @@
 import asyncio
-from telegram import Update, Message
+import traceback
+from telegram import Update
 from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
 from core.router import IntentRouter
 
@@ -170,6 +171,7 @@ class TelegramChannel:
             await self._send_long_message_in_chunks(update, response)
         except Exception as error:
             print(f"[Telegram] Erro ao processar mensagem: {error}")
+            print(traceback.format_exc())
             await update.message.reply_text("Ocorreu um erro ao processar sua mensagem. Tente novamente.")
 
     async def _handle_photo_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -190,6 +192,7 @@ class TelegramChannel:
             await self._send_long_message_in_chunks(update, response)
         except Exception as error:
             print(f"[Telegram] Erro ao processar foto: {error}")
+            print(traceback.format_exc())
             await update.message.reply_text("Erro ao processar a imagem.")
 
     async def _send_long_message_in_chunks(self, update: Update, message: str):
