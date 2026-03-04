@@ -89,10 +89,13 @@ Tarefa: {task_description}"""
                 model_name=self.default_model_name,
             )
 
+        print(f"[DEBUG] Pensamento: plano gerado com {len(steps)} passos")
+        print(f"[DEBUG] Fluxo atual: iniciar loop de execução do plano")
         execution_history = []
         final_messages = []
 
         for step_index, step in enumerate(steps[:self.max_steps]):
+            print(f"[DEBUG] Fluxo atual: executando passo {step_index+1} — {step.get('descricao')}")
             step_result, evaluation = await self._execute_step_with_retry(
                 task_description=task_description,
                 step=step,
@@ -114,11 +117,14 @@ Tarefa: {task_description}"""
 
     async def _generate_execution_plan(self, task_description: str) -> dict:
         try:
-            return await self.ollama_client.generate_completion_expecting_json(
+            print(f"[DEBUG] Pensamento: solicitando plano ao modelo")
+            plan = await self.ollama_client.generate_completion_expecting_json(
                 prompt=f"Tarefa: {task_description}",
                 model_name=self.default_model_name,
                 system_prompt=TASK_PLANNER_SYSTEM_PROMPT,
             )
+            print(f"[DEBUG] Fluxo atual: plano recebido — resumo: {str(plan)[:400]}")
+            return plan
         except Exception as error:
             print(f"[Orchestrator] Erro ao gerar plano: {error}")
             return {"plano_em_passos": []}
@@ -129,6 +135,8 @@ Tarefa: {task_description}"""
         last_evaluation: dict = {"passo_foi_bem_sucedido": True, "devemos_continuar": True}
 
         for attempt in range(MAX_RETRIES_PER_STEP + 1):
+            print(f"[DEBUG] Fluxo atual: executando comando do passo (tentativa {attempt+1})")
+            print(f"[DEBUG] Pensamento: executar como tipo={step.get('tipo')} comando=" + str(step.get('comando_ou_instrucao')[:200]))
             last_result = await self._execute_single_step(step)
             last_evaluation = await self._evaluate_step_result(
                 task_description=task_description,
@@ -155,8 +163,12 @@ Tarefa: {task_description}"""
         instruction = step.get("comando_ou_instrucao", "")
 
         if step_type == "shell" and "shell" in self.skills_registry:
+            print(f"[DEBUG] Fluxo atual: chamando skill 'shell' com comando: {instruction[:200]}")
             return await self.skills_registry["shell"].execute(instruction)
 
+        print(f"[DEBUG] Fluxo atual: chamando modelo para raciocínio com prompt (trecho): {instruction[:200]}")
+        pensamento_preview = instruction[:300].replace('\n', ' ')
+        print(f"[DEBUG] Pensamento: enviar prompt ao modelo — {pensamento_preview}")
         return await self.ollama_client.generate_completion(
             prompt=instruction,
             model_name=self.default_model_name,

@@ -56,21 +56,28 @@ class IntentRouter:
     async def route_and_handle_message(self, user_message: str, has_image: bool = False, user_id: int = 0) -> str:
         if has_image:
             response = await self._handle_image_message(user_message)
+            print(f"[DEBUG] Pensamento: mensagem marcada como imagem. Fluxo: _handle_image_message")
             self._add_to_history(user_id, user_message, response)
             return response
 
         classification = await self.classifier.classify_user_message(user_message)
         intent_type = classification["tipo"]
-
+        # debug: mostrar fluxo e 'pensamento' da IA
+        print(f"[DEBUG] Pensamento: Analisando intenção do usuário (resumo: {classification.get('resumo_intencao')})")
+        print(f"[DEBUG] Fluxo atual: route_and_handle_message | Tipo: {intent_type} | Skill sugerida: {classification.get('skill_sugerida')}")
         print(f"[Router] Tipo: {intent_type} | Skill: {classification.get('skill_sugerida')} | Resumo: {classification.get('resumo_intencao')}")
 
         if intent_type == "tarefa":
+            print("[DEBUG] Pensamento: preparar execução de tarefa via orchestrator")
             response = await self._handle_task(user_message, classification)
         elif intent_type == "codigo":
+            print("[DEBUG] Pensamento: encaminhar solicitação para assistente de código")
             response = await self._handle_code_request(user_message)
         elif intent_type == "imagem":
+            print("[DEBUG] Pensamento: processar mensagem de imagem")
             response = await self._handle_image_message(user_message)
         else:
+            print("[DEBUG] Pensamento: conversa geral — chamar modelo de conversa")
             response = await self._handle_general_conversation(user_message, user_id)
 
         self._add_to_history(user_id, user_message, response)

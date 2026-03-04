@@ -43,14 +43,19 @@ class IntentClassifier:
 
     async def classify_user_message(self, user_message: str) -> dict:
         try:
+            print(
+                f"[DEBUG] Pensamento: classificando mensagem do usuário (trecho): {user_message[:200]}")
             result = await self.ollama_client.generate_completion_expecting_json(
                 prompt=f"Mensagem do usuário: {user_message}",
                 model_name=self.classifier_model_name,
                 system_prompt=CLASSIFIER_SYSTEM_PROMPT,
             )
+            print(
+                f"[DEBUG] Fluxo atual: classificação recebida — resultado bruto: {str(result)[:300]}")
             return self._validate_and_normalize_classification(result)
         except Exception as error:
             print(f"[Classifier] Erro ao classificar: {error}")
+            print(f"[DEBUG] Pensamento: fallback de classificação acionado")
             return self._get_fallback_classification()
 
     def _validate_and_normalize_classification(self, raw_result: dict) -> dict:
