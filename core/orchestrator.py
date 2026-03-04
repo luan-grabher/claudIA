@@ -51,7 +51,6 @@ class TaskOrchestrator:
     async def execute_task_with_planning(self, task_description: str, suggested_skill: str = None) -> str:
         if suggested_skill and suggested_skill in self.skills_registry:
             return await self._execute_direct_skill(task_description, suggested_skill)
-
         return await self._execute_with_full_planning_loop(task_description)
 
     async def _execute_direct_skill(self, task_description: str, skill_name: str) -> str:
@@ -74,20 +73,22 @@ Responda APENAS com o comando, sem explicação.
 
 Tarefa: {task_description}"""
 
-        return await self.ollama_client.generate_completion(
+        resultado = await self.ollama_client.generate_completion(
             prompt=prompt,
             model_name=self.default_model_name,
         )
+        return resultado["content"]
 
     async def _execute_with_full_planning_loop(self, task_description: str) -> str:
         plan = await self._generate_execution_plan(task_description)
         steps = plan.get("plano_em_passos", [])
 
         if not steps:
-            return await self.ollama_client.generate_completion(
+            resultado = await self.ollama_client.generate_completion(
                 prompt=task_description,
                 model_name=self.default_model_name,
             )
+            return resultado["content"]
 
         print(f"[DEBUG] Pensamento: plano gerado com {len(steps)} passos")
         print(f"[DEBUG] Fluxo atual: iniciar loop de execução do plano")
@@ -167,12 +168,11 @@ Tarefa: {task_description}"""
             return await self.skills_registry["shell"].execute(instruction)
 
         print(f"[DEBUG] Fluxo atual: chamando modelo para raciocínio com prompt (trecho): {instruction[:200]}")
-        pensamento_preview = instruction[:300].replace('\n', ' ')
-        print(f"[DEBUG] Pensamento: enviar prompt ao modelo — {pensamento_preview}")
-        return await self.ollama_client.generate_completion(
+        resultado = await self.ollama_client.generate_completion(
             prompt=instruction,
             model_name=self.default_model_name,
         )
+        return resultado["content"]
 
     async def _evaluate_step_result(self, task_description: str, step: dict, step_result: str, step_index: int) -> dict:
         try:
@@ -204,7 +204,8 @@ Saída do terminal:
 
 Explique o resultado em linguagem natural e amigável para o usuário, em português."""
 
-        return await self.ollama_client.generate_completion(
+        resultado = await self.ollama_client.generate_completion(
             prompt=prompt,
             model_name=self.default_model_name,
         )
+        return resultado["content"]
