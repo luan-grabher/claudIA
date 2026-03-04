@@ -9,12 +9,18 @@ class OllamaClient:
         self.think_for_json = think_for_json
         self.log_thinking = log_thinking
 
-    def _apply_think_to_payload(self, payload: dict, expects_json: bool = False, forcar_desativar_think: bool = False):
+    def _apply_think_to_payload(self, payload: dict, forcar_desativar_think: bool = False):
         if forcar_desativar_think:
             payload["think"] = False
             return
         if self.think_mode is not None:
             payload["think"] = self.think_mode
+
+    def _apply_think_to_json_payload(self, payload: dict):
+        if self.think_for_json and self.think_mode is not None:
+            payload["think"] = self.think_mode
+        else:
+            payload["think"] = False
 
     def _build_messages_with_system_prepended(self, messages: list, system_prompt: str) -> list:
         return [{"role": "system", "content": system_prompt}] + messages
@@ -23,9 +29,12 @@ class OllamaClient:
         opening_brace_index = text.find("{")
         closing_brace_index = text.rfind("}")
         if opening_brace_index == -1 or closing_brace_index == -1:
-            raise ValueError(f"Nenhum JSON encontrado na resposta. Trecho recebido: {text[:300]}")
+            raise ValueError(f"Nenhum JSON encontrado na resposta. Resposta completa: {text[:500]}")
         json_substring = text[opening_brace_index:closing_brace_index + 1]
-        return json.loads(json_substring)
+        try:
+            return json.loads(json_substring)
+        except json.JSONDecodeError as parse_error:
+            raise ValueError(f"JSON inválido extraído da resposta. Erro: {parse_error}. JSON extraído: {json_substring[:500]}")
 
     async def generate_completion(self, prompt: str, model_name: str, system_prompt: str = None, forcar_desativar_think: bool = False) -> dict:
         payload = {
@@ -47,7 +56,7 @@ class OllamaClient:
                 data = await response.json()
                 thinking_gerado = data.get("thinking")
                 if self.log_thinking and thinking_gerado:
-                    print(f"[DEBUG] Pensamento (generate): {str(thinking_gerado)[:500]}")
+                    print(f"[OllamaClient] Pensamento (generate/{model_name}): {str(thinking_gerado)[:500]}")
                 return {
                     "content": data["response"].strip(),
                     "thinking": thinking_gerado,
@@ -61,7 +70,7 @@ class OllamaClient:
         }
         if system_prompt:
             payload["system"] = system_prompt
-        self._apply_think_to_payload(payload, expects_json=True)
+        self._apply_think_to_json_payload(payload)
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -73,10 +82,10 @@ class OllamaClient:
                 data = await response.json()
                 thinking_gerado = data.get("thinking")
                 if self.log_thinking and thinking_gerado:
-                    print(f"[DEBUG] Pensamento (json): {str(thinking_gerado)[:500]}")
+                    print(f"[OllamaClient] Pensamento (json/{model_name}): {str(thinking_gerado)[:500]}")
                 raw_response_text = data.get("response", "").strip()
                 if not raw_response_text:
-                    raise ValueError(f"Modelo '{model_name}' retornou resposta vazia ao gerar JSON")
+                    raise ValueError(f"Modelo '{model_name}' retornou resposta vazia ao gerar JSON. Payload enviado: think={payload.get('think')}")
                 return self._extract_first_json_object_from_text(raw_response_text)
 
     async def generate_chat_completion(self, messages: list, model_name: str, system_prompt: str = None, forcar_desativar_think: bool = False) -> dict:
@@ -102,7 +111,7 @@ class OllamaClient:
                 data = await response.json()
                 thinking_gerado = data.get("message", {}).get("thinking")
                 if self.log_thinking and thinking_gerado:
-                    print(f"[DEBUG] Pensamento (chat): {str(thinking_gerado)[:500]}")
+                    print(f"[OllamaClient] Pensamento (chat/{model_name}): {str(thinking_gerado)[:500]}")
                 return {
                     "content": data["message"]["content"].strip(),
                     "thinking": thinking_gerado,
