@@ -1,5 +1,5 @@
 import asyncio
-from telegram import Update
+from telegram import Update, Message
 from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
 from core.router import IntentRouter
 
@@ -77,6 +77,15 @@ class TelegramChannel:
             return True
         return user_id in self.allowed_user_ids
 
+    def _build_progress_callback_for_chat(self, update: Update):
+        async def send_progress_message_to_user(mensagem: str):
+            try:
+                await update.message.chat.send_action("typing")
+                await update.message.reply_text(mensagem)
+            except Exception as error:
+                print(f"[Telegram] Erro ao enviar progresso: {error}")
+        return send_progress_message_to_user
+
     async def _handle_start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._sender_is_allowed(update.effective_user.id):
             await update.message.reply_text("Acesso negado.")
@@ -150,15 +159,18 @@ class TelegramChannel:
 
         user_message = update.message.text
         await update.message.chat.send_action("typing")
+        progress_callback = self._build_progress_callback_for_chat(update)
 
         try:
-            response = await self.router.route_and_handle_message(user_message, user_id=update.effective_user.id)
+            response = await self.router.route_and_handle_message(
+                user_message,
+                user_id=update.effective_user.id,
+                progress_callback=progress_callback,
+            )
             await self._send_long_message_in_chunks(update, response)
         except Exception as error:
             print(f"[Telegram] Erro ao processar mensagem: {error}")
-            await update.message.reply_text(
-                "Ocorreu um erro ao processar sua mensagem. Tente novamente."
-            )
+            await update.message.reply_text("Ocorreu um erro ao processar sua mensagem. Tente novamente.")
 
     async def _handle_photo_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._sender_is_allowed(update.effective_user.id):
@@ -166,9 +178,15 @@ class TelegramChannel:
 
         caption = update.message.caption or "Descreva esta imagem"
         await update.message.chat.send_action("typing")
+        progress_callback = self._build_progress_callback_for_chat(update)
 
         try:
-            response = await self.router.route_and_handle_message(caption, has_image=True, user_id=update.effective_user.id)
+            response = await self.router.route_and_handle_message(
+                caption,
+                has_image=True,
+                user_id=update.effective_user.id,
+                progress_callback=progress_callback,
+            )
             await self._send_long_message_in_chunks(update, response)
         except Exception as error:
             print(f"[Telegram] Erro ao processar foto: {error}")

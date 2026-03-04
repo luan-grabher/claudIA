@@ -1,3 +1,4 @@
+from typing import Callable, Awaitable
 from models.ollama_client import OllamaClient
 from core.classifier import IntentClassifier
 from core.orchestrator import TaskOrchestrator
@@ -16,6 +17,16 @@ Responda em português com explicações claras e objetivas."""
 
 MAX_HISTORY_MESSAGES = 20
 
+DESCRICAO_LEGIVEL_POR_TIPO_DE_INTENCAO = {
+    "pergunta": "uma pergunta",
+    "tarefa": "uma tarefa para executar",
+    "codigo": "uma solicitação de código",
+    "imagem": "algo sobre uma imagem",
+    "conversa": "uma conversa",
+}
+
+ProgressCallback = Callable[[str], Awaitable[None]]
+
 
 class IntentRouter:
     def __init__(
@@ -32,14 +43,11 @@ class IntentRouter:
         self.skills_registry = skills_registry
         self.config = config
         self.default_model_name = config["models"]["default"]["name"]
-        self.code_model_name = config["models"].get(
-            "code", {}).get("name", self.default_model_name)
+        self.code_model_name = config["models"].get("code", {}).get("name", self.default_model_name)
 
         ollama_thinking_config = config.get("ollama", {})
-        self.thinking_habilitado_para_respostas = ollama_thinking_config.get(
-            "think", False)
-        self.log_thinking_habilitado = ollama_thinking_config.get(
-            "log_thinking", False)
+        self.thinking_habilitado_para_respostas = ollama_thinking_config.get("think", False)
+        self.log_thinking_habilitado = ollama_thinking_config.get("log_thinking", False)
 
         self._conversation_histories: dict = {}
 
@@ -56,8 +64,7 @@ class IntentRouter:
             self._conversation_histories[user_id] = []
         history = self._conversation_histories[user_id]
         if len(history) >= MAX_HISTORY_MESSAGES:
-            self._conversation_histories[user_id] = history[-(
-                MAX_HISTORY_MESSAGES - 2):]
+            self._conversation_histories[user_id] = history[-(MAX_HISTORY_MESSAGES - 2):]
             history = self._conversation_histories[user_id]
         history.append({"role": "user", "content": user_message})
         history.append({"role": "assistant", "content": assistant_response})
@@ -66,10 +73,22 @@ class IntentRouter:
         if self.log_thinking_habilitado and pensamento:
             print(f"[THINKING:{contexto}] {pensamento}")
 
-    async def route_and_handle_message(self, user_message: str, has_image: bool = False, user_id: int = 0) -> str:
+    async def _notificar_progresso_se_possivel(self, callback: ProgressCallback | None, mensagem: str):
+        if callback:
+            await callback(mensagem)
+
+    async def route_and_handle_message(
+        self,
+        user_message: str,
+        has_image: bool = False,
+        user_id: int = 0,
+        progress_callback: ProgressCallback = None,
+    ) -> str:
+        await self._notificar_progresso_se_possivel(progress_callback, "✍️ Mensagem recebida, estou pensando...")
+
         if has_image:
+            await self._notificar_progresso_se_possivel(progress_callback, "🖼️ Entendi que sua solicitação é sobre uma imagem, processando...")
             response = await self._handle_image_message(user_message)
-            print(f"[DEBUG] Fluxo: _handle_image_message")
             self._add_to_history(user_id, user_message, response)
             return response
 
@@ -78,11 +97,22 @@ class IntentRouter:
         print(
             f"[DEBUG] Fluxo: route_and_handle_message | Tipo: {intent_type} | Skill: {classification.get('skill_sugerida')} | Resumo: {classification.get('resumo_intencao')}")
 
+        descricao_legivel = DESCRICAO_LEGIVEL_POR_TIPO_DE_INTENCAO.get(intent_type, intent_type)
+        await self._notificar_progresso_se_possivel(
+            progress_callback,
+            f"🧠 Entendi que sua solicitação é {descricao_legivel}.",
+        )
+
         if intent_type == "tarefa":
+            skill_sugerida = classification.get("skill_sugerida")
+            mensagem_skill = f" Vou usar a skill `{skill_sugerida}`." if skill_sugerida else ""
+            await self._notificar_progresso_se_possivel(progress_callback, f"⚙️ Iniciando execução da tarefa...{mensagem_skill}")
             response = await self._handle_task(user_message, classification)
         elif intent_type == "codigo":
+            await self._notificar_progresso_se_possivel(progress_callback, "💻 Analisando o código, aguarde...")
             response = await self._handle_code_request(user_message)
         elif intent_type == "imagem":
+            await self._notificar_progresso_se_possivel(progress_callback, "🖼️ Processando a imagem...")
             response = await self._handle_image_message(user_message)
         else:
             response = await self._handle_general_conversation(user_message, user_id)
@@ -105,14 +135,11 @@ class IntentRouter:
             model_name=self.code_model_name,
             system_prompt=CODE_ASSISTANT_SYSTEM_PROMPT,
         )
-        self._logar_pensamento_se_habilitado(
-            resposta_bruta.get("thinking"), "codigo")
+        self._logar_pensamento_se_habilitado(resposta_bruta.get("thinking"), "codigo")
         return resposta_bruta["content"]
 
     async def _handle_general_conversation(self, user_message: str, user_id: int) -> str:
-        system_prompt = GENERAL_ASSISTANT_SYSTEM_PROMPT.format(
-            skills=self._get_skills_description()
-        )
+        system_prompt = GENERAL_ASSISTANT_SYSTEM_PROMPT.format(skills=self._get_skills_description())
         history = self._get_history(user_id)
         messages = history + [{"role": "user", "content": user_message}]
         resposta_bruta = await self.ollama_client.generate_chat_completion(
@@ -120,17 +147,14 @@ class IntentRouter:
             model_name=self.default_model_name,
             system_prompt=system_prompt,
         )
-        self._logar_pensamento_se_habilitado(
-            resposta_bruta.get("thinking"), "conversa")
+        self._logar_pensamento_se_habilitado(resposta_bruta.get("thinking"), "conversa")
         return resposta_bruta["content"]
 
     async def _handle_image_message(self, user_message: str) -> str:
         vision_model = self.config["models"].get("vision", {}).get("name")
         if not vision_model:
             return "Não há modelo de visão configurado. Adicione um modelo vision no config.yml."
-        system_prompt = GENERAL_ASSISTANT_SYSTEM_PROMPT.format(
-            skills=self._get_skills_description()
-        )
+        system_prompt = GENERAL_ASSISTANT_SYSTEM_PROMPT.format(skills=self._get_skills_description())
         resposta_bruta = await self.ollama_client.generate_completion(
             prompt=user_message,
             model_name=vision_model,

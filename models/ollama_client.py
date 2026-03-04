@@ -10,14 +10,22 @@ class OllamaClient:
         self.log_thinking = log_thinking
 
     def _apply_think_to_payload(self, payload: dict, expects_json: bool = False, forcar_desativar_think: bool = False):
-        if forcar_desativar_think or self.think_mode is None:
+        if forcar_desativar_think:
+            payload["think"] = False
             return
-        if expects_json and not self.think_for_json:
-            return
-        payload["think"] = self.think_mode
+        if self.think_mode is not None:
+            payload["think"] = self.think_mode
 
     def _build_messages_with_system_prepended(self, messages: list, system_prompt: str) -> list:
         return [{"role": "system", "content": system_prompt}] + messages
+
+    def _extract_first_json_object_from_text(self, text: str) -> dict:
+        opening_brace_index = text.find("{")
+        closing_brace_index = text.rfind("}")
+        if opening_brace_index == -1 or closing_brace_index == -1:
+            raise ValueError(f"Nenhum JSON encontrado na resposta. Trecho recebido: {text[:300]}")
+        json_substring = text[opening_brace_index:closing_brace_index + 1]
+        return json.loads(json_substring)
 
     async def generate_completion(self, prompt: str, model_name: str, system_prompt: str = None, forcar_desativar_think: bool = False) -> dict:
         payload = {
@@ -50,7 +58,6 @@ class OllamaClient:
             "model": model_name,
             "prompt": prompt,
             "stream": False,
-            "format": "json",
         }
         if system_prompt:
             payload["system"] = system_prompt
@@ -64,13 +71,13 @@ class OllamaClient:
             ) as response:
                 response.raise_for_status()
                 data = await response.json()
+                thinking_gerado = data.get("thinking")
+                if self.log_thinking and thinking_gerado:
+                    print(f"[DEBUG] Pensamento (json): {str(thinking_gerado)[:500]}")
                 raw_response_text = data.get("response", "").strip()
-
                 if not raw_response_text:
-                    print(f"[DEBUG] generate_completion_expecting_json: resposta vazia do modelo '{model_name}'")
                     raise ValueError(f"Modelo '{model_name}' retornou resposta vazia ao gerar JSON")
-
-                return json.loads(raw_response_text)
+                return self._extract_first_json_object_from_text(raw_response_text)
 
     async def generate_chat_completion(self, messages: list, model_name: str, system_prompt: str = None, forcar_desativar_think: bool = False) -> dict:
         messages_with_system = (
@@ -78,7 +85,6 @@ class OllamaClient:
             if system_prompt
             else messages
         )
-
         payload = {
             "model": model_name,
             "messages": messages_with_system,
