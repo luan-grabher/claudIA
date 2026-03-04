@@ -36,8 +36,12 @@ Responda APENAS com JSON:
   "deve_tentar_novamente": true|false,
   "comando_de_retry": "null ou comando corretivo que resolve o problema E executa a tarefa original",
   "proximo_passo_ajustado": "null ou novo comando/instrução se precisar ajustar o próximo passo",
-  "mensagem_para_usuario": "resumo do que aconteceu"
+  "mensagem_para_usuario": "resumo do que aconteceu (NUNCA deixe este campo vazio ou null)"
 }"""
+
+FRIENDLY_SUMMARY_SYSTEM_PROMPT = """Você é ClaudIA, uma assistente de IA pessoal que roda localmente.
+Explique o resultado de uma tarefa em linguagem natural, amigável e direta para o usuário.
+Responda em português brasileiro."""
 
 MAX_RETRIES_PER_STEP = 2
 
@@ -66,7 +70,7 @@ class TaskOrchestrator:
             return resultado["content"]
 
         print(f"[Orchestrator] Plano gerado com {len(steps)} passos.")
-        execution_history = []
+        all_step_results = []
         final_messages = []
 
         for step_index, step in enumerate(steps[:self.max_steps]):
@@ -76,22 +80,28 @@ class TaskOrchestrator:
                 step=step,
                 step_index=step_index,
             )
-            execution_history.append({"step": step, "result": step_result})
+            all_step_results.append(step_result)
             print(f"[Orchestrator] Resultado do passo {step_index + 1} (trecho): {step_result[:300]}")
 
-            if evaluation.get("mensagem_para_usuario"):
-                final_messages.append(evaluation["mensagem_para_usuario"])
+            mensagem_do_avaliador = evaluation.get("mensagem_para_usuario", "").strip()
+            if mensagem_do_avaliador and mensagem_do_avaliador.lower() not in ("null", "none", ""):
+                final_messages.append(mensagem_do_avaliador)
 
             if not evaluation.get("devemos_continuar", True):
                 print(f"[Orchestrator] Avaliador sinalizou parada após passo {step_index + 1}.")
                 break
 
             adjusted_next = evaluation.get("proximo_passo_ajustado")
-            if adjusted_next and adjusted_next != "null" and step_index + 1 < len(steps):
+            if adjusted_next and adjusted_next not in ("null", "none", "") and step_index + 1 < len(steps):
                 print(f"[Orchestrator] Ajustando próximo passo para: {str(adjusted_next)[:200]}")
                 steps[step_index + 1]["comando_ou_instrucao"] = adjusted_next
 
-        return "\n\n".join(final_messages) if final_messages else "Tarefa concluída."
+        if final_messages:
+            return "\n\n".join(final_messages)
+
+        print(f"[Orchestrator] Avaliador não gerou mensagens — gerando resumo amigável a partir dos resultados brutos.")
+        combined_raw_output = "\n\n".join(all_step_results)
+        return await self._generate_user_friendly_summary(task_description, combined_raw_output)
 
     async def _generate_execution_plan(self, task_description: str, skill_hint: str = None) -> dict:
         skill_context = f"\nSkill disponível e preferencial para esta tarefa: {skill_hint}" if skill_hint else ""
@@ -170,7 +180,7 @@ Resultado: {step_result[:2000]}"""
             print(traceback.format_exc())
             return {
                 "passo_foi_bem_sucedido": True,
-                "devemos_continuar": True,
+                "devemos_continuar": False,
                 "deve_tentar_novamente": False,
                 "comando_de_retry": None,
                 "proximo_passo_ajustado": None,
@@ -178,15 +188,17 @@ Resultado: {step_result[:2000]}"""
             }
 
     async def _generate_user_friendly_summary(self, task_description: str, raw_output: str) -> str:
-        prompt = f"""Tarefa: {task_description}
+        print(f"[Orchestrator] Gerando resumo amigável para o usuário...")
+        prompt = f"""Tarefa executada: {task_description}
 
-Saída do terminal:
+Saída obtida:
 {raw_output[:3000]}
 
-Explique o resultado em linguagem natural e amigável para o usuário, em português."""
+Resuma o resultado de forma clara e amigável para o usuário."""
 
         resultado = await self.ollama_client.generate_completion(
             prompt=prompt,
             model_name=self.default_model_name,
+            system_prompt=FRIENDLY_SUMMARY_SYSTEM_PROMPT,
         )
         return resultado["content"]
