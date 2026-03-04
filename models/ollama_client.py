@@ -16,6 +16,9 @@ class OllamaClient:
             return
         payload["think"] = self.think_mode
 
+    def _build_messages_with_system_prepended(self, messages: list, system_prompt: str) -> list:
+        return [{"role": "system", "content": system_prompt}] + messages
+
     async def generate_completion(self, prompt: str, model_name: str, system_prompt: str = None, forcar_desativar_think: bool = False) -> dict:
         payload = {
             "model": model_name,
@@ -61,16 +64,26 @@ class OllamaClient:
             ) as response:
                 response.raise_for_status()
                 data = await response.json()
-                return json.loads(data["response"])
+                raw_response_text = data.get("response", "").strip()
+
+                if not raw_response_text:
+                    print(f"[DEBUG] generate_completion_expecting_json: resposta vazia do modelo '{model_name}'")
+                    raise ValueError(f"Modelo '{model_name}' retornou resposta vazia ao gerar JSON")
+
+                return json.loads(raw_response_text)
 
     async def generate_chat_completion(self, messages: list, model_name: str, system_prompt: str = None, forcar_desativar_think: bool = False) -> dict:
+        messages_with_system = (
+            self._build_messages_with_system_prepended(messages, system_prompt)
+            if system_prompt
+            else messages
+        )
+
         payload = {
             "model": model_name,
-            "messages": messages,
+            "messages": messages_with_system,
             "stream": False,
         }
-        if system_prompt:
-            payload["system"] = system_prompt
         self._apply_think_to_payload(payload, forcar_desativar_think=forcar_desativar_think)
 
         async with aiohttp.ClientSession() as session:
