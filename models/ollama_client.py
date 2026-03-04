@@ -27,14 +27,37 @@ class OllamaClient:
 
     def _extract_first_json_object_from_text(self, text: str) -> dict:
         opening_brace_index = text.find("{")
-        closing_brace_index = text.rfind("}")
-        if opening_brace_index == -1 or closing_brace_index == -1:
+        if opening_brace_index == -1:
             raise ValueError(f"Nenhum JSON encontrado na resposta. Resposta completa: {text[:500]}")
-        json_substring = text[opening_brace_index:closing_brace_index + 1]
+
+        closing_brace_index = text.rfind("}")
+        json_candidate = (
+            text[opening_brace_index:closing_brace_index + 1]
+            if closing_brace_index != -1
+            else text[opening_brace_index:] + "}"
+        )
+
         try:
-            return json.loads(json_substring)
-        except json.JSONDecodeError as parse_error:
-            raise ValueError(f"JSON inválido extraído da resposta. Erro: {parse_error}. JSON extraído: {json_substring[:500]}")
+            return json.loads(json_candidate)
+        except json.JSONDecodeError:
+            pass
+
+        last_complete_field_end = max(
+            json_candidate.rfind('",'),
+            json_candidate.rfind("true,"),
+            json_candidate.rfind("false,"),
+            json_candidate.rfind("null,"),
+        )
+        if last_complete_field_end > opening_brace_index:
+            json_healed_by_trimming_last_incomplete_field = (
+                json_candidate[:last_complete_field_end + 1].rstrip(",") + "\n}"
+            )
+            try:
+                return json.loads(json_healed_by_trimming_last_incomplete_field)
+            except json.JSONDecodeError:
+                pass
+
+        raise ValueError(f"JSON inválido mesmo após tentativas de correção. Resposta completa: {text[:500]}")
 
     async def generate_completion(self, prompt: str, model_name: str, system_prompt: str = None, forcar_desativar_think: bool = False) -> dict:
         payload = {
@@ -85,7 +108,10 @@ class OllamaClient:
                     print(f"[OllamaClient] Pensamento (json/{model_name}): {str(thinking_gerado)[:500]}")
                 raw_response_text = data.get("response", "").strip()
                 if not raw_response_text:
-                    raise ValueError(f"Modelo '{model_name}' retornou resposta vazia ao gerar JSON. Payload enviado: think={payload.get('think')}")
+                    raise ValueError(
+                        f"Modelo '{model_name}' retornou resposta vazia ao gerar JSON. "
+                        f"think={payload.get('think')}"
+                    )
                 return self._extract_first_json_object_from_text(raw_response_text)
 
     async def generate_chat_completion(self, messages: list, model_name: str, system_prompt: str = None, forcar_desativar_think: bool = False) -> dict:
