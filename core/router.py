@@ -95,11 +95,13 @@ class IntentRouter:
         descricao_legivel = DESCRICAO_LEGIVEL_POR_TIPO_DE_INTENCAO.get(intent_type, intent_type)
         await self._notificar_progresso_se_possivel(progress_callback, f"🧠 Entendi que sua solicitação é {descricao_legivel}.")
 
+        history = self._get_history(user_id)
+
         if intent_type == "tarefa":
             skill_sugerida = classification.get("skill_sugerida")
             mensagem_skill = f" Vou usar a skill `{skill_sugerida}`." if skill_sugerida else ""
             await self._notificar_progresso_se_possivel(progress_callback, f"⚙️ Iniciando execução da tarefa...{mensagem_skill}")
-            response = await self._handle_task(user_message, classification)
+            response = await self._handle_task(user_message, classification, history)
         elif intent_type == "codigo":
             await self._notificar_progresso_se_possivel(progress_callback, "💻 Analisando o código, aguarde...")
             response = await self._handle_code_request(user_message)
@@ -112,13 +114,14 @@ class IntentRouter:
         self._add_to_history(user_id, user_message, response)
         return response
 
-    async def _handle_task(self, user_message: str, classification: dict) -> str:
+    async def _handle_task(self, user_message: str, classification: dict, conversation_history: list) -> str:
         suggested_skill = classification.get("skill_sugerida")
         if suggested_skill and suggested_skill not in self.skills_registry:
             suggested_skill = None
         return await self.orchestrator.execute_task_with_planning(
             task_description=user_message,
             suggested_skill=suggested_skill,
+            recent_conversation_history=conversation_history,
         )
 
     async def _handle_code_request(self, user_message: str) -> str:
