@@ -8,6 +8,7 @@ from core.orchestrator import TaskOrchestrator
 from core.router import IntentRouter
 from channels.telegram_channel import TelegramChannel
 from skills.shell_skill import ShellSkill
+from skills.web_search_skill import WebSearchSkill
 
 FIRST_RUN_MARKER = "/app/data/.first_run"
 
@@ -29,6 +30,10 @@ def build_skills_registry(config: dict) -> dict:
     if skills_config.get("shell", {}).get("enabled", False):
         registry["shell"] = ShellSkill(config)
         print("[ClaudIA] Skill 'shell' carregada.")
+
+    if skills_config.get("web_search", {}).get("enabled", False):
+        registry["web_search"] = WebSearchSkill(config)
+        print("[ClaudIA] Skill 'web_search' carregada.")
 
     return registry
 
