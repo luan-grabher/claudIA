@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ClaudIA — Fluxo de Raciocínio</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --cor-fundo: #090b10;
+    --cor-painel: #0e1117;
+    --cor-borda: #1c2333;
+    --cor-primaria: #00d9ff;
+    --cor-secundaria: #7c3aed;
+    --cor-perigo: #ff4757;
+    --cor-sucesso: #00e676;
+    --cor-aviso: #ffd600;
+    --cor-texto: #c8d6e5;
+    --cor-texto-fraco: #5f7a94;
+    --cor-classificador: #00d9ff;
+    --cor-planejamento: #7c3aed;
+    --cor-execucao: #ff6b35;
+    --cor-validacao: #00e676;
+    --cor-resposta: #ffd600;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--cor-fundo);
+    font-family: 'Syne', sans-serif;
+    color: var(--cor-texto);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 60% 40% at 20% 10%, rgba(0,217,255,0.05) 0%, transparent 60%),
+      radial-gradient(ellipse 50% 50% at 80% 80%, rgba(124,58,237,0.07) 0%, transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .cabecalho {
+    position: relative;
+    z-index: 10;
+    padding: 2.5rem 3rem 1.5rem;
+    border-bottom: 1px solid var(--cor-borda);
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+  }
+
+  .cabecalho-logo {
+    font-size: 1.6rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: var(--cor-primaria);
+    text-shadow: 0 0 2rem rgba(0,217,255,0.4);
+  }
+
+  .cabecalho-logo span { color: var(--cor-texto); }
+
+  .cabecalho-subtitulo {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--cor-texto-fraco);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .cabecalho-separador {
+    width: 1px;
+    height: 2.5rem;
+    background: var(--cor-borda);
+  }
+
+  .legenda-container {
+    display: flex;
+    gap: 1.2rem;
+    margin-left: auto;
+    flex-wrap: wrap;
+  }
+
+  .legenda-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--cor-texto-fraco);
+    letter-spacing: 0.05em;
+  }
+
+  .legenda-bolinha {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .area-fluxo {
+    position: relative;
+    z-index: 1;
+    padding: 2rem 1.5rem 4rem;
+    max-width: 72rem;
+    margin: 0 auto;
+  }
+
+  svg.linhas-conexao {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    overflow: visible;
+  }
+
+  .grade-fluxo {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+    position: relative;
+  }
+
+  .linha-fluxo {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 0;
+    position: relative;
+  }
+
+  .no {
+    border-radius: 0.75rem;
+    padding: 1rem 1.2rem;
+    border: 1px solid var(--cor-borda);
+    background: var(--cor-painel);
+    position: relative;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+    min-width: 14rem;
+    max-width: 22rem;
+  }
+
+  .no:hover {
+    transform: translateY(-0.15rem);
+  }
+
+  .no-inicio {
+    border-color: var(--cor-classificador);
+    box-shadow: 0 0 1.5rem rgba(0,217,255,0.15), inset 0 1px 0 rgba(0,217,255,0.1);
+  }
+
+  .no-classificador {
+    border-color: var(--cor-classificador);
+    box-shadow: 0 0 1rem rgba(0,217,255,0.1);
+  }
+
+  .no-planejamento {
+    border-color: var(--cor-planejamento);
+    box-shadow: 0 0 1rem rgba(124,58,237,0.15);
+  }
+
+  .no-execucao {
+    border-color: var(--cor-execucao);
+    box-shadow: 0 0 1rem rgba(255,107,53,0.15);
+  }
+
+  .no-validacao {
+    border-color: var(--cor-validacao);
+    box-shadow: 0 0 1rem rgba(0,230,118,0.15);
+  }
+
+  .no-resposta {
+    border-color: var(--cor-resposta);
+    box-shadow: 0 0 1rem rgba(255,214,0,0.15);
+  }
+
+  .no-decisao {
+    transform: rotate(0deg);
+    clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+    border-radius: 0;
+    border: none;
+    padding: 1.5rem 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    min-width: 11rem;
+    min-height: 6rem;
+  }
+
+  .no-decisao-classificador {
+    background: rgba(0,217,255,0.08);
+    box-shadow: 0 0 1.5rem rgba(0,217,255,0.2);
+    outline: 2px solid rgba(0,217,255,0.3);
+  }
+
+  .no-decisao-planejamento {
+    background: rgba(124,58,237,0.08);
+    box-shadow: 0 0 1.5rem rgba(124,58,237,0.2);
+    outline: 2px solid rgba(124,58,237,0.3);
+  }
+
+  .no-decisao-execucao {
+    background: rgba(255,107,53,0.08);
+    box-shadow: 0 0 1.5rem rgba(255,107,53,0.2);
+    outline: 2px solid rgba(255,107,53,0.3);
+  }
+
+  .no-decisao-validacao {
+    background: rgba(0,230,118,0.08);
+    box-shadow: 0 0 1.5rem rgba(0,230,118,0.2);
+    outline: 2px solid rgba(0,230,118,0.3);
+  }
+
+  .no-titulo {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 0.4rem;
+  }
+
+  .no-pergunta {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    color: var(--cor-texto);
+  }
+
+  .no-detalhe {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.62rem;
+    color: var(--cor-texto-fraco);
+    margin-top: 0.5rem;
+    line-height: 1.4;
+    display: none;
+  }
+
+  .no.expandido .no-detalhe { display: block; }
+
+  .no-badge {
+    position: absolute;
+    top: -0.55rem;
+    left: 1rem;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.55rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.15rem 0.5rem;
+    border-radius: 0.25rem;
+    font-weight: 700;
+  }
+
+  .badge-classificador { background: var(--cor-classificador); color: #000; }
+  .badge-planejamento { background: var(--cor-planejamento); color: #fff; }
+  .badge-execucao { background: var(--cor-execucao); color: #fff; }
+  .badge-validacao { background: var(--cor-validacao); color: #000; }
+  .badge-resposta { background: var(--cor-resposta); color: #000; }
+  .badge-inicio { background: var(--cor-primaria); color: #000; }
+
+  .seta-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0.4rem 0;
+    gap: 0.1rem;
+  }
+
+  .seta-linha {
+    width: 1px;
+    height: 1.2rem;
+    background: linear-gradient(to bottom, transparent, var(--cor-texto-fraco));
+  }
+
+  .seta-ponta {
+    width: 0;
+    height: 0;
+    border-left: 0.3rem solid transparent;
+    border-right: 0.3rem solid transparent;
+    border-top: 0.4rem solid var(--cor-texto-fraco);
+  }
+
+  .seta-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.6rem;
+    color: var(--cor-texto-fraco);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .ramificacao-container {
+    display: flex;
+    justify-content: center;
+    gap: 2rem;
+    width: 100%;
+    position: relative;
+  }
+
+  .ramificacao-ramo {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    flex: 1;
+    max-width: 22rem;
+  }
+
+  .linha-horizontal-ramificacao {
+    width: 100%;
+    height: 1px;
+    background: var(--cor-borda);
+    position: relative;
+    margin-bottom: 0.5rem;
+  }
+
+  .titulo-secao {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--cor-texto-fraco);
+    text-align: center;
+    padding: 1.5rem 0 0.5rem;
+    position: relative;
+  }
+
+  .titulo-secao::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 0;
+    transform: translateX(-50%);
+    width: 1px;
+    height: 1.2rem;
+    background: var(--cor-borda);
+  }
+
+  .titulo-secao-texto {
+    background: var(--cor-fundo);
+    padding: 0 0.8rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  .titulo-secao::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 1px;
+    background: var(--cor-borda);
+    z-index: 0;
+  }
+
+  .bloco-destaque {
+    background: rgba(124,58,237,0.05);
+    border: 1px dashed rgba(124,58,237,0.3);
+    border-radius: 0.75rem;
+    padding: 1.2rem 1.5rem;
+    margin: 0.5rem 0;
+    width: 100%;
+    max-width: 46rem;
+  }
+
+  .bloco-destaque-titulo {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--cor-secundaria);
+    margin-bottom: 0.6rem;
+  }
+
+  .bloco-destaque-lista {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .bloco-destaque-lista li {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--cor-texto);
+    padding-left: 1rem;
+    position: relative;
+    line-height: 1.4;
+  }
+
+  .bloco-destaque-lista li::before {
+    content: '→';
+    position: absolute;
+    left: 0;
+    color: var(--cor-secundaria);
+  }
+
+  .coluna-fluxo {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    width: 100%;
+  }
+
+  .flex-row-nos {
+    display: flex;
+    justify-content: center;
+    gap: 1.5rem;
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .conector-ramificado {
+    display: flex;
+    width: 100%;
+    max-width: 46rem;
+    position: relative;
+    justify-content: center;
+  }
+
+  .conector-ramificado::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 25%;
+    right: 25%;
+    height: 1px;
+    background: var(--cor-borda);
+  }
+
+  .ramo-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+  }
+
+  .rotulo-sim {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.6rem;
+    color: var(--cor-sucesso);
+    letter-spacing: 0.05em;
+    font-weight: 700;
+  }
+
+  .rotulo-nao {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.6rem;
+    color: var(--cor-perigo);
+    letter-spacing: 0.05em;
+    font-weight: 700;
+  }
+
+  .rotulo-neutro {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.6rem;
+    color: var(--cor-texto-fraco);
+    letter-spacing: 0.05em;
+  }
+
+  .loop-indicador {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.6rem;
+    color: var(--cor-aviso);
+    background: rgba(255,214,0,0.08);
+    border: 1px solid rgba(255,214,0,0.2);
+    border-radius: 0.4rem;
+    padding: 0.3rem 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .prompt-box {
+    background: #080c12;
+    border: 1px solid var(--cor-borda);
+    border-left: 3px solid var(--cor-primaria);
+    border-radius: 0 0.5rem 0.5rem 0;
+    padding: 1rem 1.2rem;
+    width: 100%;
+    max-width: 46rem;
+    margin: 0.5rem 0;
+  }
+
+  .prompt-box-titulo {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.6rem;
+    color: var(--cor-primaria);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+  }
+
+  .prompt-box-texto {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--cor-texto);
+    line-height: 1.5;
+    font-style: italic;
+  }
+
+  .espacador { height: 0.5rem; }
+  .espacador-grande { height: 1rem; }
+
+  @media (max-width: 48rem) {
+    .cabecalho { padding: 1.5rem; flex-wrap: wrap; }
+    .legenda-container { display: none; }
+    .area-fluxo { padding: 1.5rem 1rem 3rem; }
+    .no { min-width: 12rem; }
+    .flex-row-nos { gap: 0.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<header class="cabecalho">
+  <div>
+    <div class="cabecalho-logo">Claud<span>IA</span></div>
+    <div class="cabecalho-subtitulo">Fluxo de Raciocínio do Agente</div>
+  </div>
+  <div class="cabecalho-separador"></div>
+  <div class="legenda-container">
+    <div class="legenda-item"><div class="legenda-bolinha" style="background:var(--cor-classificador)"></div> Classificação</div>
+    <div class="legenda-item"><div class="legenda-bolinha" style="background:var(--cor-planejamento)"></div> Planejamento</div>
+    <div class="legenda-item"><div class="legenda-bolinha" style="background:var(--cor-execucao)"></div> Execução</div>
+    <div class="legenda-item"><div class="legenda-bolinha" style="background:var(--cor-validacao)"></div> Validação</div>
+    <div class="legenda-item"><div class="legenda-bolinha" style="background:var(--cor-resposta)"></div> Resposta</div>
+  </div>
+</header>
+
+<main class="area-fluxo">
+<div class="coluna-fluxo">
+
+  <!-- ENTRADA -->
+  <div class="no no-inicio" onclick="alternarExpansao(this)">
+    <div class="no-badge badge-inicio">entrada</div>
+    <div class="no-titulo" style="color:var(--cor-primaria)">📨 Mensagem do Usuário</div>
+    <div class="no-pergunta">Uma nova mensagem chegou via Telegram.</div>
+    <div class="no-detalhe">Texto bruto recebido. Ainda sem contexto, intenção ou tipo definidos. O pipeline começa aqui.</div>
+  </div>
+
+  <div class="seta-container"><div class="seta-linha"></div><div class="seta-ponta"></div></div>
+
+  <!-- BLOCO CLASSIFICADOR -->
+  <div class="no no-classificador" onclick="alternarExpansao(this)" style="max-width:28rem">
+    <div class="no-badge badge-classificador">fase 1 — classificador (3B)</div>
+    <div class="no-titulo" style="color:var(--cor-classificador)">🧭 Classificar Intenção</div>
+    <div class="no-pergunta">Qual é a natureza desta mensagem?<br>Que tipo de tarefa o usuário quer executar?</div>
+    <div class="no-detalhe">
+      Modelo leve (Qwen2.5:3b) analisa a mensagem e produz:<br>
+      • Categoria: conversa / código / busca / comando / criação<br>
+      • Nível de complexidade: baixo / médio / alto<br>
+      • Precisa de ferramentas externas? sim / não<br>
+      • Rota para: modelo principal ou modelo coder
+    </div>
+  </div>
+
+  <div class="seta-container"><div class="seta-linha"></div><div class="seta-ponta"></div></div>
+
+  <!-- DECISÃO 1 -->
+  <div class="no no-decisao no-decisao-classificador" onclick="alternarExpansao(this)">
+    <div class="no-pergunta" style="font-size:0.68rem; padding: 0 0.5rem">A mensagem está clara e tem intenção identificável?</div>
+  </div>
+
+  <div class="espacador"></div>
+
+  <!-- RAMIFICAÇÃO 1: SIM / NÃO -->
+  <div class="conector-ramificado" style="max-width:50rem">
+    <div class="ramo-col" style="border-right: 1px solid var(--cor-borda); padding-right: 1.5rem">
+      <div class="seta-container">
+        <div class="rotulo-nao">NÃO</div>
+        <div class="seta-linha"></div><div class="seta-ponta"></div>
+      </div>
+      <div class="no no-classificador" onclick="alternarExpansao(this)">
+        <div class="no-titulo" style="color:var(--cor-perigo); font-size:0.7rem">🔁 Pedir Clareza</div>
+        <div class="no-pergunta" style="font-size:0.68rem">Gerar pergunta direta para o usuário.<br><em>"Você quer dizer X ou Y?"</em></div>
+        <div class="no-detalhe">O agente não deve adivinhar. Se a intenção for ambígua, é mais eficiente perguntar do que produzir uma resposta errada e depois corrigir.</div>
+      </div>
+      <div class="seta-container"><div class="seta-linha"></div><div class="rotulo-neutro" style="font-size:0.55rem">volta ao início</div></div>
+      <div class="loop-indicador">↩ loop de esclarecimento</div>
+    </div>
+
+    <div class="ramo-col" style="padding-left: 1.5rem">
+      <div class="seta-container">
+        <div class="rotulo-sim">SIM</div>
+        <div class="seta-linha"></div><div class="seta-ponta"></div>
+      </div>
+      <div class="no no-classificador" onclick="alternarExpansao(this)">
+        <div class="no-titulo" style="color:var(--cor-classificador); font-size:0.7rem">🔀 Rotear para Modelo</div>
+        <div class="no-pergunta" style="font-size:0.68rem">Decisão de rota baseada na categoria:<br>→ Código → Coder model<br>→ Resto → Modelo principal</div>
+        <div class="no-detalhe">Evitar carregar dois modelos ao mesmo tempo por limitação de RAM. A rota determina qual modelo será ativado via Ollama.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="seta-container" style="margin-top:1rem"><div class="seta-linha"></div><div class="seta-ponta"></div></div>
+
+  <!-- TÍTULO FASE 2 -->
+  <div class="titulo-secao"><span class="titulo-secao-texto" style="color:var(--cor-planejamento)">FASE 2 — PLANEJAMENTO</span></div>
+
+  <!-- PROMPT PLANEJAMENTO -->
+  <div class="prompt-box" style="border-left-color: var(--cor-planejamento)">
+    <div class="prompt-box-titulo" style="color:var(--cor-planejamento)">📋 sistema de prompt interno — planejamento</div>
+    <div class="prompt-box-texto">
+      "Antes de responder, liste mentalmente os passos necessários para resolver isso.<br>
+      Para cada passo, identifique: (1) é um raciocínio puro? (2) requer busca/internet? (3) requer execução de comando?<br>
+      Só então comece a resolver."
+    </div>
+  </div>
+
+  <div class="seta-container"><div class="seta-linha"></div><div class="seta-ponta"></div></div>
+
+  <div class="no no-planejamento" onclick="alternarExpansao(this)" style="max-width:30rem">
+    <div class="no-badge badge-planejamento">planejamento</div>
+    <div class="no-titulo" style="color:var(--cor-planejamento)">🗺️ Decompor em Passos</div>
+    <div class="no-pergunta">
+      Quais são os passos para resolver isso?<br>
+      Quais passos dependem de informação externa?<br>
+      Qual a ordem lógica de execução?
+    </div>
+    <div class="no-detalhe">
+      O agente deve listar explicitamente antes de agir:<br>
+      1. "Para responder X preciso saber Y"<br>
+      2. "Y está no meu conhecimento ou preciso buscar?"<br>
+      3. "Se precisar buscar, qual ferramenta?"<br>
+      4. "Se precisar executar, qual é o risco?"
+    </div>
+  </div>
+
+  <div class="seta-container"><div class="seta-linha"></div><div class="seta-ponta"></div></div>
+
+  <!-- DECISÃO 2 -->
+  <div class="no no-decisao no-decisao-planejamento" onclick="alternarExpansao(this)">
+    <div class="no-pergunta" style="font-size:0.68rem; padding: 0 0.5rem">Preciso de informação ou ação externa para responder isso?</div>
+  </div>
+
+  <div class="espacador"></div>
+
+  <!-- RAMIFICAÇÃO 2: SIM / NÃO -->
+  <div class="conector-ramificado" style="max-width:52rem">
+
+    <div class="ramo-col" style="border-right: 1px solid var(--cor-borda); padding-right: 1.5rem">
+      <div class="seta-container">
+        <div class="rotulo-sim">SIM — precisa de ferramenta</div>
+        <div class="seta-linha"></div><div class="seta-ponta"></div>
+      </div>
+
+      <!-- TÍTULO FASE 3A -->
+      <div style="font-family:'Space Mono',monospace; font-size:0.6rem; color:var(--cor-execucao); letter-spacing:0.1em; text-transform:uppercase; margin-bottom:0.5rem">FASE 3A — EXECUÇÃO COM FERRAMENTA</div>
+
+      <div class="no no-execucao" onclick="alternarExpansao(this)" style="width:100%">
+        <div class="no-badge badge-execucao">execução</div>
+        <div class="no-titulo" style="color:var(--cor-execucao)">🔍 Planejar Uso de Ferramenta</div>
+        <div class="no-pergunta" style="font-size:0.68rem">
+          É busca na internet ou comando no terminal?<br>
+          Qual é o risco desta ação?<br>
+          Posso reverter se der errado?
+        </div>
+        <div class="no-detalhe">
+          Antes de executar qualquer ação:<br>
+          • Definir o objetivo exato da busca/comando<br>
+          • Estimar o que esperar como resultado<br>
+          • Identificar se é destrutivo ou reversível<br>
+          • Se destrutivo → confirmar com usuário primeiro
+        </div>
+      </div>
+
+      <div class="seta-container"><div class="seta-linha"></div><div class="seta-ponta"></div></div>
+
+      <!-- DECISÃO TIPO DE FERRAMENTA -->
+      <div class="no no-decisao no-decisao-execucao" onclick="alternarExpansao(this)" style="min-width:9rem; min-height:5rem">
+        <div class="no-pergunta" style="font-size:0.62rem; padding:0 0.3rem">Busca web ou comando de terminal?</div>
+      </div>
+
+      <div class="espacador"></div>
+
+      <div style="display:flex; gap:1rem; width:100%">
+        <div style="flex:1; display:flex; flex-direction:column; align-items:center">
+          <div class="seta-container"><div class="rotulo-neutro" style="font-size:0.55rem">WEB</div><div class="seta-linha"></div><div class="seta-ponta"></div></div>
+          <div class="no no-execucao" onclick="alternarExpansao(this)" style="min-width:0; width:100%">
+            <div class="no-titulo" style="color:var(--cor-execucao); font-size:0.68rem">🌐 Buscar na Web</div>
+            <div class="no-pergunta" style="font-size:0.65rem">Formular query precisa.<br>Executar busca.<br>Ler resultado.</div>
+            <div class="no-detalhe">Query deve ser específica, não vaga. Se o resultado não responde, reformular antes de tentar novamente. Máximo 3 tentativas.</div>
+          </div>
+        </div>
+        <div style="flex:1; display:flex; flex-direction:column; align-items:center">
+          <div class="seta-container"><div class="rotulo-neutro" style="font-size:0.55rem">TERMINAL</div><div class="seta-linha"></div><div class="seta-ponta"></div></div>
+          <div class="no no-execucao" onclick="alternarExpansao(this)" style="min-width:0; width:100%">
+            <div class="no-titulo" style="color:var(--cor-execucao); font-size:0.68rem">💻 Executar Comando</div>
+            <div class="no-pergunta" style="font-size:0.65rem">Escrever o comando.<br>Confirmar se destrutivo.<br>Executar e ler saída.</div>
+            <div class="no-detalhe">
+              Se o comando pode deletar/sobrescrever dados: exibir para o usuário e pedir confirmação explícita antes de executar.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="seta-container"><div class="seta-linha"></div><div class="seta-ponta"></div></div>
+
+      <div class="no no-execucao" onclick="alternarExpansao(this)" style="width:100%">
+        <div class="no-titulo" style="color:var(--cor-execucao)">📤 O resultado obtido faz sentido?</div>
+        <div class="no-pergunta" style="font-size:0.68rem">
+          O que recebi é o que eu esperava?<br>
+          Tenho o suficiente para responder?<br>
+          Ou preciso executar mais um passo?
+        </div>
+        <div class="no-detalhe">
+          Se o resultado for vazio, erro ou irrelevante:<br>
+          → Reformular a abordagem e tentar de novo<br>
+          → Se falhar 3x: informar ao usuário a limitação
+        </div>
+      </div>
+    </div>
+
+    <div class="ramo-col" style="padding-left: 1.5rem">
+      <div class="seta-container">
+        <div class="rotulo-nao">NÃO — só raciocínio</div>
+        <div class="seta-linha"></div><div class="seta-ponta"></div>
+      </div>
+
+      <!-- TÍTULO FASE 3B -->
+      <div style="font-family:'Space Mono',monospace; font-size:0.6rem; color:var(--cor-planejamento); letter-spacing:0.1em; text-transform:uppercase; margin-bottom:0.5rem">FASE 3B — RACIOCÍNIO DIRETO</div>
+
+      <div class="no no-planejamento" onclick="alternarExpansao(this)" style="width:100%">
+        <div class="no-badge badge-planejamento">raciocínio</div>
+        <div class="no-titulo" style="color:var(--cor-planejamento)">🧠 Raciocinar Passo a Passo</div>
+        <div class="no-pergunta" style="font-size:0.68rem">
+          Pensar em voz alta antes de responder.<br>
+          Dividir o problema em partes menores.<br>
+          Resolver cada parte em ordem.
+        </div>
+        <div class="no-detalhe">
+          Técnica chain-of-thought aplicada internamente:<br>
+          1. Reescrever o problema com próprias palavras<br>
+          2. Identificar o que é dado vs o que precisa ser derivado<br>
+          3. Resolver da parte mais simples para a mais complexa<br>
+          4. Verificar se a resposta final é coerente com o input
+        </div>
+      </div>
+
+      <div class="seta-container"><div class="seta-linha"></div><div class="seta-ponta"></div></div>
+
+      <div class="bloco-destaque" style="width:100%">
+        <div class="bloco-destaque-titulo">perguntas guia do raciocínio</div>
+        <ul class="bloco-destaque-lista">
+          <li>O que exatamente o usuário quer saber?</li>
+          <li>Existe ambiguidade que eu já devia ter perguntado?</li>
+          <li>Qual o conhecimento mínimo para responder isso?</li>
+          <li>Existem múltiplas interpretações válidas?</li>
+          <li>Minha resposta seria útil para um leigo? E para um especialista?</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="seta-container" style="margin-top:1rem"><div class="seta-linha"></div><div class="seta-ponta"></div></div>
+
+  <!-- TÍTULO FASE 4 -->
+  <div class="titulo-secao"><span class="titulo-secao-texto" style="color:var(--cor-validacao)">FASE 4 — VALIDAÇÃO DA RESPOSTA</span></div>
+
+  <div class="seta-container"><div class="seta-linha"></div><div class="seta-ponta"></div></div>
+
+  <!-- PROMPT VALIDAÇÃO -->
+  <div class="prompt-box" style="border-left-color: var(--cor-validacao)">
+    <div class="prompt-box-titulo" style="color:var(--cor-validacao)">🧪 sistema de prompt interno — autoavaliação</div>
+    <div class="prompt-box-texto">
+      "Antes de enviar, responda internamente: O que eu produzi responde exatamente o que foi pedido?<br>
+      Se eu fosse o usuário, ficaria satisfeito com essa resposta? Tem algo óbvio que está faltando?"
+    </div>
+  </div>
+
+  <div class="seta-container"><div class="seta-linha"></div><div class="seta-ponta"></div></div>
+
+  <div class="no no-validacao" onclick="alternarExpansao(this)" style="max-width:32rem">
+    <div class="no-badge badge-validacao">autoavaliação</div>
+    <div class="no-titulo" style="color:var(--cor-validacao)">✅ Checar a Própria Resposta</div>
+    <div class="no-pergunta">
+      O que produzi responde o que foi pedido?<br>
+      Há informações erradas ou inventadas?<br>
+      A resposta está no formato adequado?
+    </div>
+    <div class="no-detalhe">
+      Checklist interno antes de enviar:<br>
+      ☐ Responde a pergunta original?<br>
+      ☐ Não tem alucinação ou dado inventado?<br>
+      ☐ Tom e formato adequados ao usuário?<br>
+      ☐ Está conciso ou tem blá-blá desnecessário?<br>
+      ☐ Se usou ferramenta: o resultado foi usado de fato?
+    </div>
+  </div>
+
+  <div class="seta-container"><div class="seta-linha"></div><div class="seta-ponta"></div></div>
+
+  <!-- DECISÃO FINAL -->
+  <div class="no no-decisao no-decisao-validacao" onclick="alternarExpansao(this)">
+    <div class="no-pergunta" style="font-size:0.68rem; padding: 0 0.5rem">O resultado é o que o usuário espera receber?</div>
+  </div>
+
+  <div class="espacador"></div>
+
+  <!-- RAMIFICAÇÃO FINAL -->
+  <div class="conector-ramificado" style="max-width:50rem">
+
+    <div class="ramo-col" style="border-right: 1px solid var(--cor-borda); padding-right: 1.5rem">
+      <div class="seta-container">
+        <div class="rotulo-nao">NÃO — resposta incompleta</div>
+        <div class="seta-linha"></div><div class="seta-ponta"></div>
+      </div>
+      <div class="no no-validacao" onclick="alternarExpansao(this)" style="width:100%">
+        <div class="no-titulo" style="color:var(--cor-perigo); font-size:0.7rem">🔄 Diagnosticar o Problema</div>
+        <div class="no-pergunta" style="font-size:0.68rem">
+          O que está faltando ou errado?<br>
+          É um problema de planejamento ou execução?<br>
+          Vale tentar de novo ou admitir limitação?
+        </div>
+        <div class="no-detalhe">
+          Se for planejamento falho → volta para Fase 2<br>
+          Se faltou dado externo → volta para Fase 3A<br>
+          Se o raciocínio foi incompleto → volta para Fase 3B<br>
+          Se falhou 2+ vezes → admitir limitação ao usuário
+        </div>
+      </div>
+      <div class="seta-container"><div class="seta-linha"></div></div>
+      <div class="loop-indicador">↩ loop de refinamento (máx. 2x)</div>
+    </div>
+
+    <div class="ramo-col" style="padding-left: 1.5rem">
+      <div class="seta-container">
+        <div class="rotulo-sim">SIM — aprovado</div>
+        <div class="seta-linha"></div><div class="seta-ponta"></div>
+      </div>
+
+      <div class="titulo-secao" style="padding-top:0"><span class="titulo-secao-texto" style="color:var(--cor-resposta); background:transparent">FASE 5 — RESPOSTA</span></div>
+
+      <div class="no no-resposta" onclick="alternarExpansao(this)" style="width:100%">
+        <div class="no-badge badge-resposta">resposta final</div>
+        <div class="no-titulo" style="color:var(--cor-resposta)">📬 Formatar e Enviar</div>
+        <div class="no-pergunta" style="font-size:0.68rem">
+          Adaptar tom e formato para o contexto.<br>
+          Markdown? Código? Texto simples?<br>
+          Enviar via Telegram ao usuário.
+        </div>
+        <div class="no-detalhe">
+          Regras de formatação:<br>
+          • Telegram suporta Markdown básico<br>
+          • Código → bloco com linguagem<br>
+          • Listas longas → separar em mensagens<br>
+          • Sempre terminar com algo acionável se possível
+        </div>
+      </div>
+
+      <div class="seta-container"><div class="seta-linha"></div><div class="seta-ponta"></div></div>
+
+      <div class="no" style="border-color:var(--cor-resposta); background:rgba(255,214,0,0.04); max-width:100%; width:100%">
+        <div class="no-titulo" style="color:var(--cor-resposta)">🎯 Aguardar Feedback</div>
+        <div class="no-pergunta" style="font-size:0.68rem">
+          O usuário ficou satisfeito?<br>
+          Houve pedido de correção ou continuação?
+        </div>
+        <div class="no-detalhe">
+          Se o usuário pedir correção: volta para Fase 1 com novo contexto incluindo a resposta anterior e o feedback.<br>
+          O contexto da conversa é preservado no histórico de mensagens.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="espacador-grande"></div>
+
+  <!-- SUMÁRIO DE PROMPTS -->
+  <div class="bloco-destaque" style="max-width:52rem; border-color: rgba(0,217,255,0.2); border-style: solid">
+    <div class="bloco-destaque-titulo" style="color:var(--cor-primaria)">📌 resumo dos prompts de sistema por fase</div>
+    <ul class="bloco-destaque-lista">
+      <li><strong style="color:var(--cor-classificador)">Classificador:</strong> "Categorize esta mensagem. Retorne: tipo, complexidade, precisa_ferramenta (bool), rota (main|coder)."</li>
+      <li><strong style="color:var(--cor-planejamento)">Planejamento:</strong> "Liste os passos para resolver. Para cada um: é raciocínio, busca ou comando?"</li>
+      <li><strong style="color:var(--cor-execucao)">Execução:</strong> "Antes de executar: defina o objetivo, estime o resultado esperado, avalie o risco."</li>
+      <li><strong style="color:var(--cor-validacao)">Validação:</strong> "Sua resposta resolve o problema original? É precisa? Está no formato certo?"</li>
+      <li><strong style="color:var(--cor-resposta)">Resposta:</strong> "Formate adequadamente para Telegram. Tom direto, sem enrolação."</li>
+    </ul>
+  </div>
+
+</div>
+</main>
+
+<script>
+  function alternarExpansao(elementoNo) {
+    elementoNo.classList.toggle('expandido');
+  }
+</script>
+</body>
+</html>
