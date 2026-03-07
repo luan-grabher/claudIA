@@ -97,6 +97,7 @@ class TelegramChannel:
             "Posso:\n"
             "• Responder perguntas\n"
             "• Executar comandos no terminal\n"
+            "• Buscar informações na internet\n"
             "• Ajudar com código\n"
             "• E muito mais\n\n"
             "Use /setup para configurar e /status para ver o estado atual.\n"
@@ -111,12 +112,14 @@ class TelegramChannel:
         default_model = self.config["models"]["default"]["name"]
         classifier_model = self.config["models"]["classifier"]["name"]
         shell_enabled = self.config.get("skills", {}).get("shell", {}).get("enabled", False)
+        web_search_enabled = self.config.get("skills", {}).get("web_search", {}).get("enabled", False)
 
         status_message = (
             f"🤖 *ClaudIA Status*\n\n"
             f"🧠 Modelo principal: `{default_model}`\n"
             f"🔍 Classificador: `{classifier_model}`\n"
             f"🖥️ Shell skill: {'✅ ativa' if shell_enabled else '❌ inativa'}\n"
+            f"🌐 Web search skill: {'✅ ativa' if web_search_enabled else '❌ inativa'}\n"
             f"✅ Online"
         )
         await update.message.reply_text(status_message, parse_mode="Markdown")
@@ -132,6 +135,8 @@ class TelegramChannel:
         vision_model = self.config["models"].get("vision", {}).get("name", "(não configurado)")
         shell_enabled = self.config.get("skills", {}).get("shell", {}).get("enabled", False)
         shell_timeout = self.config.get("skills", {}).get("shell", {}).get("timeout_seconds", 60)
+        web_search_enabled = self.config.get("skills", {}).get("web_search", {}).get("enabled", False)
+        searxng_url = self.config.get("skills", {}).get("web_search", {}).get("searxng_url", "http://searxng:8080")
         max_steps = self.config.get("orchestrator", {}).get("max_steps_per_task", 8)
         allowed_ids = list(self.allowed_user_ids)
         ollama_url = self.config.get("ollama", {}).get("base_url", "http://ollama:11434")
@@ -145,7 +150,8 @@ class TelegramChannel:
             f"  • Visão: `{vision_model}`\n\n"
             f"*Ollama URL:* `{ollama_url}`\n\n"
             f"*Skills:*\n"
-            f"  • Shell: {'✅ ativa' if shell_enabled else '❌ inativa'} (timeout: {shell_timeout}s)\n\n"
+            f"  • Shell: {'✅ ativa' if shell_enabled else '❌ inativa'} (timeout: {shell_timeout}s)\n"
+            f"  • Web search: {'✅ ativa' if web_search_enabled else '❌ inativa'} (SearXNG: `{searxng_url}`)\n\n"
             f"*Orquestrador:* máx {max_steps} passos por tarefa\n\n"
             f"*Usuários autorizados:* `{allowed_ids}`\n\n"
             "Para alterar as configurações, edite o `config.yml` e reinicie o container:\n"

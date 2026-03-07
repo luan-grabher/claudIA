@@ -22,11 +22,25 @@ services:
     #           count: all
     #           capabilities: [gpu]
 
+  searxng:
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://searxng:8080
+    networks:
+      - claudia_net
+    # Uncomment to expose SearXNG on the host for debugging:
+    # ports:
+    #   - "8080:8080"
+
   claudia:
     build: .
     restart: unless-stopped
     depends_on:
       - ollama
+      - searxng
     volumes:
       - ./config.yml:/app/config.yml:ro
       - ./claudia_data:/app/data

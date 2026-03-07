@@ -24,8 +24,10 @@ skills:
     enabled: true
     timeout_seconds: 60
   web_search:
-    enabled: false          # requer SearXNG rodando localmente
-    searxng_url: "http://localhost:8080"
+    enabled: true           # requer SearXNG (incluído no docker-compose.yml)
+    searxng_url: "http://searxng:8080"
+    max_results: 5          # número de resultados retornados por busca
+    timeout_seconds: 30
 
 orchestrator:
   max_steps_per_task: 8

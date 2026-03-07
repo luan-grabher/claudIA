@@ -20,9 +20,11 @@ MAX_HISTORY_MESSAGES = 20
 DESCRICAO_LEGIVEL_POR_TIPO_DE_INTENCAO = {
     "pergunta": "uma pergunta",
     "tarefa": "uma tarefa para executar",
+    "busca": "uma busca na internet",
     "codigo": "uma solicitação de código",
     "imagem": "algo sobre uma imagem",
     "conversa": "uma conversa",
+    "ambigua": "uma mensagem que precisa de esclarecimento",
 }
 
 ProgressCallback = Callable[[str], Awaitable[None]]
@@ -97,10 +99,21 @@ class IntentRouter:
 
         history = self._get_history(user_id)
 
+        if intent_type == "ambigua":
+            clarification = classification.get("pergunta_esclarecimento") or "Poderia ser mais específico sobre o que você precisa?"
+            if not classification.get("pergunta_esclarecimento"):
+                print(f"[Router] AVISO: classificador retornou 'ambigua' sem pergunta_esclarecimento. Usando fallback.")
+            print(f"[Router] Mensagem ambígua. Solicitando esclarecimento.")
+            self._add_to_history(user_id, user_message, clarification)
+            return clarification
+
         if intent_type == "tarefa":
             skill_sugerida = classification.get("skill_sugerida")
             mensagem_skill = f" Vou usar a skill `{skill_sugerida}`." if skill_sugerida else ""
             await self._notificar_progresso_se_possivel(progress_callback, f"⚙️ Iniciando execução da tarefa...{mensagem_skill}")
+            response = await self._handle_task(user_message, classification, history)
+        elif intent_type == "busca":
+            await self._notificar_progresso_se_possivel(progress_callback, "🔍 Buscando na internet, aguarde...")
             response = await self._handle_task(user_message, classification, history)
         elif intent_type == "codigo":
             await self._notificar_progresso_se_possivel(progress_callback, "💻 Analisando o código, aguarde...")

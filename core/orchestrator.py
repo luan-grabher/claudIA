@@ -1,26 +1,35 @@
 import traceback
 from models.ollama_client import OllamaClient
 
-TASK_PLANNER_SYSTEM_PROMPT = """Você é um agente de IA autônomo com acesso ao terminal Linux.
+TASK_PLANNER_SYSTEM_PROMPT = """Você é um agente de IA autônomo. Antes de criar o plano, analise mentalmente:
+1. Esta tarefa precisa de informação do sistema (arquivos, processos, memória)? → use "shell"
+2. Esta tarefa precisa de informações atuais da internet? → use "web_search"
+3. Esta tarefa pode ser respondida só com raciocínio? → use "raciocinio"
+
 O diretório de trabalho atual é /app. Todos os caminhos relativos partem deste diretório.
 
-Dado uma tarefa, crie um plano de execução.
+Tipos de passos disponíveis:
+- "shell": executa comando no terminal Linux
+- "web_search": busca na internet — forneça uma query específica como instrução
+- "raciocinio": raciocínio interno — forneça uma instrução clara e completa
 
-Regras importantes:
-- Para qualquer informação sobre o sistema (arquivos, pastas, processos), use comandos shell.
-- SEMPRE use caminhos relativos a /app para pastas do projeto (ex: ls skills/, ls core/, ls channels/).
-- Use caminhos absolutos apenas para pastas do sistema (ex: ls /etc/, ls /var/).
-- Nunca crie passos do tipo "raciocinio" com comando_ou_instrucao vazio, null ou nulo. Se o passo for shell, coloque o comando direto.
-- Se o contexto da conversa anterior mencionar arquivos ou pastas, use essas informações para gerar comandos corretos.
+Regras:
+- Para qualquer informação sobre o sistema (arquivos, pastas, processos, uso de CPU/memória), use "shell".
+- Para notícias, preços, informações externas ou atuais, use "web_search".
+- Use caminhos relativos a /app para arquivos do projeto (ex: ls skills/, ls core/).
+- Use caminhos absolutos apenas para o sistema (ex: ls /etc/).
+- NUNCA deixe "comando_ou_instrucao" vazio, null ou nulo.
 - Seja autônomo: não peça confirmação, execute e resolva.
+- Para "web_search": escreva uma query de busca objetiva e específica.
+- Para "raciocinio": escreva a instrução completa do que o modelo deve fazer.
 
 Responda APENAS com JSON válido:
 {
   "plano_em_passos": [
     {
       "descricao": "o que este passo faz",
-      "tipo": "shell",
-      "comando_ou_instrucao": "comando exato (nunca null ou vazio)"
+      "tipo": "shell|web_search|raciocinio",
+      "comando_ou_instrucao": "comando, query de busca, ou instrução (nunca null ou vazio)"
     }
   ],
   "estimativa_de_passos": 1
@@ -28,28 +37,53 @@ Responda APENAS com JSON válido:
 
 STEP_EVALUATOR_SYSTEM_PROMPT = """Você é um avaliador de progresso autônomo. Analise o resultado de um passo e decida o que fazer.
 
-Se um comando falhou (exit code != 0 ou "not found" ou "command not found"):
+Se um comando shell falhou (exit code != 0, "not found" ou "command not found"):
 - Gere um comando de recuperação que resolva o problema.
 - Defina "deve_tentar_novamente": true e "comando_de_retry" com o comando corretivo.
 
+Se uma busca web retornou vazio ou "[WebSearch] Nenhum resultado":
+- Reformule a query de busca e defina "deve_tentar_novamente": true.
+- Coloque a nova query em "comando_de_retry".
+
 IMPORTANTE: O campo "mensagem_para_usuario" DEVE conter um resumo útil do resultado.
-Se o comando listou arquivos, inclua a lista na mensagem. Se instalou algo, confirme. Nunca deixe este campo vazio ou null.
+Se o passo listou arquivos, inclua a lista. Se foi busca, inclua os dados encontrados. Nunca deixe vazio ou null.
 
 Responda APENAS com JSON:
 {
   "passo_foi_bem_sucedido": true|false,
   "devemos_continuar": true|false,
   "deve_tentar_novamente": true|false,
-  "comando_de_retry": "null ou comando corretivo",
+  "comando_de_retry": "null ou comando/query corretivo",
   "proximo_passo_ajustado": "null ou novo comando",
   "mensagem_para_usuario": "resumo completo do resultado, incluindo os dados obtidos"
 }"""
 
+RESPONSE_VALIDATOR_SYSTEM_PROMPT = """Você é um validador de respostas. Verifique se a resposta gerada resolve o que o usuário pediu.
+
+Checklist:
+- A resposta responde exatamente o que foi pedido?
+- Não contém dados inventados ou alucinação?
+- Se usou ferramenta (shell/web), o resultado real foi incorporado?
+- Está concisa, sem informações desnecessárias?
+
+Responda APENAS com JSON:
+{
+  "aprovado_para_envio": true|false,
+  "motivo_reprovacao": "null ou descrição do problema"
+}"""
+
 FRIENDLY_SUMMARY_SYSTEM_PROMPT = """Você é ClaudIA, uma assistente de IA pessoal que roda localmente.
 Apresente o resultado da tarefa de forma clara para o usuário em português.
-IMPORTANTE: Inclua os dados reais obtidos (arquivos listados, valores, etc). Não resuma sem mostrar os dados."""
+
+Antes de responder, verifique internamente:
+- O que produzi responde exatamente o que foi pedido?
+- Contém os dados reais obtidos (não inventados)?
+- Está conciso e no formato adequado?
+
+IMPORTANTE: Inclua os dados reais obtidos (arquivos listados, resultados de busca, valores, etc). Não resuma sem mostrar os dados."""
 
 MAX_RETRIES_PER_STEP = 2
+MAX_RESPONSE_VALIDATION_RETRIES = 2
 
 
 class TaskOrchestrator:
@@ -137,14 +171,16 @@ class TaskOrchestrator:
                 steps[step_index + 1]["comando_ou_instrucao"] = adjusted_next
 
         if final_messages:
-            return "\n\n".join(final_messages)
+            raw_response = "\n\n".join(final_messages)
+            return await self._validate_and_refine_response(task_description, raw_response)
 
         if not all_step_results:
             return "Nenhum passo foi executado. Tente reformular a tarefa."
 
         print(f"[Orchestrator] Avaliador não gerou mensagens — gerando resumo a partir dos resultados brutos.")
         combined_raw_output = "\n\n".join(all_step_results)
-        return await self._generate_user_friendly_summary(task_description, combined_raw_output)
+        summary = await self._generate_user_friendly_summary(task_description, combined_raw_output)
+        return await self._validate_and_refine_response(task_description, summary)
 
     async def _generate_execution_plan(
         self,
@@ -189,7 +225,9 @@ class TaskOrchestrator:
             if should_retry and retry_command not in (None, "null", "") and attempt < MAX_RETRIES_PER_STEP:
                 print(f"[Orchestrator] Recovery (tentativa {attempt + 1}): {str(retry_command)[:200]}")
                 step["comando_ou_instrucao"] = retry_command
-                step["tipo"] = "shell"
+                # Preserve web_search type; only switch to shell if the step was originally shell
+                if step.get("tipo") not in ("web_search", "shell"):
+                    step["tipo"] = "shell"
                 continue
 
             break
@@ -203,6 +241,13 @@ class TaskOrchestrator:
         if step_type == "shell" and "shell" in self.skills_registry:
             print(f"[Orchestrator] Chamando skill 'shell': {instruction[:200]}")
             return await self.skills_registry["shell"].execute(instruction)
+
+        if step_type == "web_search" and "web_search" in self.skills_registry:
+            print(f"[Orchestrator] Chamando skill 'web_search': {instruction[:200]}")
+            return await self.skills_registry["web_search"].execute(instruction)
+
+        if step_type == "web_search" and "web_search" not in self.skills_registry:
+            return "[WebSearch] Skill de busca na web não está habilitada. Configure web_search no config.yml."
 
         print(f"[Orchestrator] Chamando modelo para raciocínio: {instruction[:200]}")
         resultado = await self.ollama_client.generate_completion(
@@ -235,6 +280,43 @@ Resultado: {step_result[:2000]}"""
                 "proximo_passo_ajustado": None,
                 "mensagem_para_usuario": step_result,
             }
+
+    async def _validate_and_refine_response(self, task_description: str, response: str) -> str:
+        for attempt in range(MAX_RESPONSE_VALIDATION_RETRIES):
+            try:
+                print(f"[Orchestrator] Validando resposta (tentativa {attempt + 1})...")
+                validation = await self.ollama_client.generate_completion_expecting_json(
+                    prompt=f"Tarefa original: {task_description}\n\nResposta gerada:\n{response[:3000]}",
+                    model_name=self.default_model_name,
+                    system_prompt=RESPONSE_VALIDATOR_SYSTEM_PROMPT,
+                )
+                if validation.get("aprovado_para_envio", False):
+                    print(f"[Orchestrator] Resposta aprovada na validação.")
+                    return response
+
+                motivo = validation.get("motivo_reprovacao", "resposta incompleta")
+                print(f"[Orchestrator] Resposta reprovada: {motivo}. Refinando...")
+                response = await self._refine_response(task_description, response, motivo)
+            except Exception as error:
+                print(f"[Orchestrator] Erro na validação da resposta: {error}")
+                break
+
+        return response
+
+    async def _refine_response(self, task_description: str, previous_response: str, problem: str) -> str:
+        prompt = (
+            f"Tarefa original: {task_description}\n\n"
+            f"Resposta anterior (com problema):\n{previous_response[:2000]}\n\n"
+            f"Problema identificado: {problem}\n\n"
+            "Reescreva a resposta corrigindo o problema identificado. "
+            "Inclua os dados reais, seja direto e responda exatamente o que foi pedido."
+        )
+        resultado = await self.ollama_client.generate_completion(
+            prompt=prompt,
+            model_name=self.default_model_name,
+            system_prompt=FRIENDLY_SUMMARY_SYSTEM_PROMPT,
+        )
+        return resultado["content"]
 
     async def _generate_user_friendly_summary(self, task_description: str, raw_output: str) -> str:
         print(f"[Orchestrator] Gerando resumo amigável para o usuário...")

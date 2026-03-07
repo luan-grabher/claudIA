@@ -1,0 +1,36 @@
+# SearXNG configuration for ClaudIA
+# This file is mounted into the SearXNG container via docker-compose.yml
+
+use_default_settings: true
+
+server:
+  # Generate a new secret key with: python3 -c "import secrets; print(secrets.token_hex(32))"
+  # WARNING: Replace this placeholder before deploying to production!
+  secret_key: "changeme-generate-a-real-secret-key"
+  limiter: false
+  image_proxy: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "pt-BR"
+  formats:
+    - html
+    - json
+
+engines:
+  - name: google
+    engine: google
+    shortcut: g
+    use_mobile_ui: false
+
+  - name: bing
+    engine: bing
+    shortcut: b
+
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: d
+
+ui:
+  static_use_hash: true
